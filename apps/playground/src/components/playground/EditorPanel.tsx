@@ -61,9 +61,15 @@ interface EditorPanelProps {
   onCodeChange: (code: string, opts?: { immediate?: boolean }) => void;
   onFormat?: { current: (() => void) | null };
   jumpToLineRef?: { current: ((line: number) => void) | null };
+  onCollapseEditor?: () => void;
 }
 
-export default function EditorPanel({ onCodeChange, onFormat, jumpToLineRef }: EditorPanelProps) {
+export default function EditorPanel({
+  onCodeChange,
+  onFormat,
+  jumpToLineRef,
+  onCollapseEditor,
+}: EditorPanelProps) {
   const code = usePlaygroundStore((s) => s.code);
   const setCode = usePlaygroundStore((s) => s.setCode);
   const fileName = usePlaygroundStore((s) => s.fileName);
@@ -353,6 +359,26 @@ export default function EditorPanel({ onCodeChange, onFormat, jumpToLineRef }: E
           </svg>
           <span>Save</span>
         </button>
+        {onCollapseEditor && (
+          <button
+            type="button"
+            onClick={onCollapseEditor}
+            title="Collapse code pane"
+            aria-label="Collapse code pane"
+            className="pointer-events-auto flex items-center justify-center rounded px-1.5 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-white/10 hover:text-white"
+          >
+            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+              <path
+                d="M10 3.5L5.5 8 10 12.5M6 3.5v9"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
+            </svg>
+          </button>
+        )}
       </div>
       {isDraggingFile && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center border-2 border-dashed border-teal-primary bg-gray-950/75 backdrop-blur-[1px]">

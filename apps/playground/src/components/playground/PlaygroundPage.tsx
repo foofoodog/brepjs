@@ -135,6 +135,7 @@ export default function PlaygroundPage() {
         onOpenCommandPalette={openCommandPalette}
         onOpenHelp={openShortcutHelp}
         onOpenExamples={exampleRoute.openGallery}
+        onToggleEditor={panels.toggleEditor}
         onOpenActions={openActions}
         isRunning={isRunning}
         compact={isMobile}

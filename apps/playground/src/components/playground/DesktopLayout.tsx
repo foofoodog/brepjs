@@ -7,6 +7,7 @@ import OutputPanel from './OutputPanel';
 import CollapsedConsoleBar from './CollapsedConsoleBar';
 import BimTreePanel from './BimTreePanel';
 import FlatPatternPanel from './FlatPatternPanel';
+import ParametersPanel from './ParametersPanel';
 
 interface Props {
   panels: PlaygroundPanels;
@@ -60,6 +61,7 @@ export default function DesktopLayout({
               onCodeChange={onCodeChange}
               onFormat={formatRef}
               jumpToLineRef={jumpToLineRef}
+              onCollapseEditor={panels.toggleEditor}
             />
           </Panel>
           <Separator className="h-px bg-border-subtle" />
@@ -96,9 +98,10 @@ export default function DesktopLayout({
         {isViewerCollapsed ? null : (
           <div className="relative h-full w-full">
             <ViewerPanel />
-            {/* Overlays: each renders only when the current example exposes its
-                data (BIM tree / sheet-metal flat pattern), so they never co-occur. */}
-            <BimTreePanel />
+            <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-h-[85%] flex-col gap-2">
+              <ParametersPanel />
+              <BimTreePanel />
+            </div>
             <FlatPatternPanel />
           </div>
         )}

@@ -15,6 +15,7 @@ interface ToolbarProps {
   onOpenCommandPalette: () => void;
   onOpenHelp: () => void;
   onOpenExamples: () => void;
+  onToggleEditor?: () => void;
   /** Open the mobile action sheet (share/export). Shown only in compact mode. */
   onOpenActions: () => void;
   isRunning: boolean;
@@ -35,11 +36,13 @@ export default function Toolbar({
   onOpenCommandPalette,
   onOpenHelp,
   onOpenExamples,
+  onToggleEditor,
   onOpenActions,
   isRunning,
   compact = false,
 }: ToolbarProps) {
   const engineReady = useEngineStore((s) => s.status === 'ready');
+  const isEditorCollapsed = usePlaygroundStore((s) => s.isEditorCollapsed);
   const selectionCount = usePlaygroundStore((s) => s.selections.length);
   const clearSelections = usePlaygroundStore((s) => s.clearSelections);
   // DXF / IFC are domain artifacts only some models produce (sheet-metal flat
@@ -67,6 +70,34 @@ export default function Toolbar({
           >
             Examples
           </button>
+          {!compact && onToggleEditor && (
+            <button
+              onClick={onToggleEditor}
+              title={`${isEditorCollapsed ? 'Show' : 'Hide'} code editor (${formatShortcut(SHORTCUTS.toggleEditor)})`}
+              aria-label={isEditorCollapsed ? 'Show code editor' : 'Hide code editor'}
+              aria-pressed={!isEditorCollapsed}
+              className={`flex items-center gap-1.5 rounded border px-2.5 py-1 text-xs font-medium transition-colors ${
+                isEditorCollapsed
+                  ? 'border-gray-700 bg-surface-overlay text-gray-400 hover:border-gray-500 hover:bg-gray-700 hover:text-white'
+                  : 'border-teal-primary/40 bg-teal-primary/10 text-teal-light hover:border-teal-primary/60 hover:bg-teal-primary/20'
+              }`}
+            >
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+                <rect
+                  x="1.5"
+                  y="2.5"
+                  width="13"
+                  height="11"
+                  rx="1.5"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  fill="none"
+                />
+                <path d="M6.5 2.5v11" stroke="currentColor" strokeWidth="1.4" />
+              </svg>
+              <span>{isEditorCollapsed ? 'Show Code' : 'Hide Code'}</span>
+            </button>
+          )}
           {selectionCount > 0 && (
             <button
               onClick={clearSelections}

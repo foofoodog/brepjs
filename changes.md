@@ -47,6 +47,16 @@ This document tracks the user-facing features, build/deployment changes, and com
 - Removed 17 unused upstream GitHub Actions workflows (npm release-please/trusted-publisher workflows, CLA bot, Dependabot auto-merge, OSV cron scan, Vercel smoke test, and Anthropic/Langfuse eval workflows).
 - Updated `repository.url` across `package.json` manifests to `https://github.com/foofoodog/brepjs`.
 
+### 7. Interactive Parameters / Customizer Panel & Code Pane Toggle
+
+- Added a live **Parameters** panel in the top-left of the 3D viewport (`ParametersPanel.tsx` + `scriptParams.ts`) that automatically extracts editable parameters directly from the script without requiring changes to existing examples:
+  - Exported function call-site arguments, positional defaults, and destructured object parameter defaults (`Arguments`).
+  - Top-level and exported-function-body `const` literals (`Constants`) with trailing/preceding `//` comment descriptions.
+  - **TypeScript Type Annotations:** Literal union types (`'M4' | 'M6' | 'M8'`, `4 | 6 | 8`, or `type` aliases) automatically render as dropdowns; explicit `: string` types render as text inputs; booleans render as toggle switches.
+  - **OpenSCAD Customizer Comment Metadata:** Supports range sliders (`// [min:max]`, `// [min:step:max]`), labeled or unlabeled dropdowns (`// [a, b, c]`, `// [val:Label, ...]`), custom section headers (`/* [Section Name] */`), and hidden variables (`/* [Hidden] */` or `// [hidden]`).
+  - **Reset to Defaults (`↺`) & Syntax Help (`?`):** Includes per-parameter revert buttons, a header `↺ Reset` button to restore all modified parameters at once, an inline `?` syntax cheat-sheet, and full documentation in [`docs/customizer-parameters.md`](./docs/customizer-parameters.md).
+- Added **Hide Code / Show Code** toggle controls in the top toolbar (`Toolbar.tsx`) and a collapse (`«`) icon button next to **Save** in `EditorPanel.tsx` so the code pane can be collapsed to give the 3D viewport and Parameters panel 100% width.
+
 ---
 
 ## Commit Synopsis (Chronological)
@@ -64,3 +74,5 @@ This document tracks the user-facing features, build/deployment changes, and com
 | `57599c8b` | 2026-10-24 | `fix(playground): keep example URLs clean and only write ?code= on Share`                       | Stopped `handleRun` from writing `?code=` to the URL and stripped stale query strings when selecting an example in `useExampleRoute`.                                                                                                                         |
 | `1b215d61` | 2026-10-24 | `fix(playground): preserve shared ?code= on example routes and read live editor state on Share` | Updated `handleShare` to read live store code at click time and prevented `PlaygroundPage`'s initial example mount effect from overwriting shared `?code=` params.                                                                                            |
 | `9dc40aa8` | 2026-10-24 | `fix(playground): share links always use root path and load as a blank slate`                   | Normalized shared links and editor edits to use the root base path (`/?code=...`) and load shared `?code=` URLs as a clean blank slate.                                                                                                                       |
+| `b893f4b1` | 2026-10-24 | `docs: add changes.md summarizing fork features and commit history`                             | Added `changes.md` and linked it from `README.md`, plus removed `.github/workflows/eval.yml`.                                                                                                                                                                 |
+| `HEAD`     | 2026-10-24 | `feat(playground): add Customizer parameters panel and code pane collapse toggle`               | Added `ParametersPanel` + `scriptParams` (supporting zero-config extraction, TS union/primitive types, OpenSCAD Customizer comment annotations, and per-param/all reset), `docs/customizer-parameters.md`, and toolbar/editor code-pane collapse buttons.     |
