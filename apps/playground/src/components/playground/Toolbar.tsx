@@ -67,25 +67,6 @@ export default function Toolbar({
           >
             Examples
           </button>
-          <a
-            href={`${import.meta.env.BASE_URL}examples.zip`}
-            download="brepjs-examples.zip"
-            title="Download all examples (.ts & .js) as a ZIP archive"
-            aria-label="Download all examples as ZIP"
-            className="flex items-center gap-1 rounded border border-gray-700 bg-surface-overlay px-2 py-1 text-xs font-medium text-gray-300 transition-colors hover:border-gray-500 hover:bg-gray-700 hover:text-white"
-          >
-            <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
-              <path
-                d="M8 2v8m0 0L5 7m3 3l3-3M3 12.5h10"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                fill="none"
-              />
-            </svg>
-            <span className="hidden sm:inline">Examples .zip</span>
-          </a>
           {selectionCount > 0 && (
             <button
               onClick={clearSelections}

@@ -27,7 +27,7 @@ CAD modeling for JavaScript.
 > - **Layerling (`LYL`) Clipboard Export:** Copy any rendered 3D model directly to the clipboard in Layerling's custom-mesh JSON format (`Ctrl+V` into Layerling).
 > - **Drag-and-Drop Script Loading:** Drag `.ts` or `.js` files from your computer straight into the Monaco editor to load and run them.
 > - **Save Code to Disk:** Floating **Save** button in the editor using the native OS _Save As_ dialog (`showSaveFilePicker`) with a prompt/download fallback.
-> - **Downloadable Examples Archive:** One-click **Examples .zip** button in the toolbar and Examples gallery containing all standalone `.ts` and `.js` example scripts.
+> - **Downloadable Examples Archive:** One-click **Download .zip** button in the Examples gallery containing all standalone `.ts` and `.js` example scripts.
 
 Shapes are exact mathematical boundaries (not triangle meshes), so booleans are precise, measurements are real, and you can export to STEP. TypeScript types prove the geometry is valid at compile time.
 
