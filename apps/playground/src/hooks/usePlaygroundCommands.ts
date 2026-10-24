@@ -61,6 +61,12 @@ export function usePlaygroundCommands({
         run: actions.handleExportSTEP,
       },
       {
+        id: 'exportLYL',
+        group: 'Export',
+        label: 'Copy for Layerling (LYL)',
+        run: actions.handleExportLYL,
+      },
+      {
         id: 'format',
         group: 'Editor',
         label: 'Format code',

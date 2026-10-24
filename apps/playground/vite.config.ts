@@ -17,7 +17,7 @@ const brepjsPkgPath = fileURLToPath(new URL('../../package.json', import.meta.ur
 const brepjsPkg = JSON.parse(readFileSync(brepjsPkgPath, 'utf8')) as PackageJson;
 const BREPJS_VERSION = brepjsPkg.version ?? '0.0.0-dev';
 
-const BASE = '/playground/';
+const BASE = process.env.VITE_BASE_PATH ?? '/playground/';
 
 // WASM assets the playground worker fetches from `${base}wasm/<file>`: the OCCT
 // kernel (occt-wasm) and web-ifc (used by brepjs-bim's IFC export). Each maps a

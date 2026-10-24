@@ -12,7 +12,7 @@
   "license": "LGPL-2.1-only",
   "repository": {
     "type": "git",
-    "url": "https://github.com/andymai/brepjs",
+    "url": "https://github.com/foofoodog/brepjs",
     "directory": "packages/brepjs-opencascade"
   },
   "engines": {

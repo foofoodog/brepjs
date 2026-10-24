@@ -13,7 +13,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/andymai/brepjs"
+    "url": "https://github.com/foofoodog/brepjs"
   },
   "type": "module",
   "sideEffects": [
@@ -328,7 +328,9 @@
     }
   },
   "allowScripts": {
-    "esbuild@0.28.1": true,
-    "esbuild@0.25.10": true
+    "core-js@3.49.0": true,
+    "protobufjs@7.6.6": true,
+    "puppeteer@25.13.0": true,
+    "esbuild@0.28.2": true
   }
 }

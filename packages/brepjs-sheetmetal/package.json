@@ -14,7 +14,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/andymai/brepjs",
+    "url": "https://github.com/foofoodog/brepjs",
     "directory": "packages/brepjs-sheetmetal"
   },
   "type": "module",

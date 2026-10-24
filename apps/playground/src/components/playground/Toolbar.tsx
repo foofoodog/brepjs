@@ -7,6 +7,7 @@ interface ToolbarProps {
   onRun: () => void;
   onExportSTL: () => void;
   onExportSTEP: () => void;
+  onExportLYL: () => void;
   onExportDXF: () => void;
   onExportIFC: () => void;
   onExportFiles: () => void;
@@ -26,6 +27,7 @@ export default function Toolbar({
   onRun,
   onExportSTL,
   onExportSTEP,
+  onExportLYL,
   onExportDXF,
   onExportIFC,
   onExportFiles,
@@ -119,6 +121,14 @@ export default function Toolbar({
                 className="rounded px-2.5 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-surface-overlay hover:text-white disabled:opacity-40"
               >
                 STEP
+              </button>
+              <button
+                onClick={onExportLYL}
+                disabled={!engineReady || isRunning}
+                title="Copy model to clipboard for Layerling"
+                className="rounded px-2.5 py-1 text-xs font-medium text-gray-400 transition-colors hover:bg-surface-overlay hover:text-white disabled:opacity-40"
+              >
+                LYL
               </button>
               {canExportDXF && (
                 <button

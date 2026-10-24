@@ -14,7 +14,7 @@
   "sideEffects": false,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/andymai/brepjs.git",
+    "url": "git+https://github.com/foofoodog/brepjs.git",
     "directory": "packages/brepjs-voxel"
   },
   "files": [

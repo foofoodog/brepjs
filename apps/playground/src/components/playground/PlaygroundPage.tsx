@@ -124,6 +124,7 @@ export default function PlaygroundPage() {
         onRun={actions.handleRun}
         onExportSTL={actions.handleExportSTL}
         onExportSTEP={actions.handleExportSTEP}
+        onExportLYL={actions.handleExportLYL}
         onExportDXF={actions.handleExportDXF}
         onExportIFC={actions.handleExportIFC}
         onExportFiles={actions.handleExportFiles}
@@ -180,6 +181,7 @@ export default function PlaygroundPage() {
         onShare={actions.handleShare}
         onExportSTL={actions.handleExportSTL}
         onExportSTEP={actions.handleExportSTEP}
+        onExportLYL={actions.handleExportLYL}
         onExportDXF={actions.handleExportDXF}
         onExportIFC={actions.handleExportIFC}
         onExportFiles={actions.handleExportFiles}

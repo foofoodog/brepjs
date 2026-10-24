@@ -9,6 +9,7 @@ import { useUrlState } from './useUrlState';
 import { useScreenshot } from './useScreenshot';
 import { clearDraft } from './useDraftPersistence';
 import { copyToClipboard } from '../lib/copyToClipboard';
+import { meshesToLayerlingClipboard } from '../lib/layerlingClipboard';
 import { DEFAULT_CODE } from '../lib/constants';
 import type { Example } from '../lib/examples';
 
@@ -18,6 +19,7 @@ export interface PlaygroundActions {
   handleShare: () => void;
   handleExportSTL: () => void;
   handleExportSTEP: () => void;
+  handleExportLYL: () => void;
   handleExportDXF: () => void;
   handleExportIFC: () => void;
   handleExportFiles: () => void;
@@ -68,6 +70,22 @@ export function usePlaygroundActions(): PlaygroundActions {
     track('playground_export', { format: 'step' });
     captureEvent('playground_export', { format: 'step' });
   }, [exportSTEP, code, addToast]);
+
+  const handleExportLYL = useCallback(() => {
+    const meshes = usePlaygroundStore.getState().meshes;
+    const result = meshesToLayerlingClipboard(meshes);
+    if (!result) {
+      addToast('No model to copy — check that your code returns a shape.');
+      return;
+    }
+    void copyToClipboard(result.text).then((copied) => {
+      addToast(
+        copied ? 'Copied for Layerling — paste with Ctrl+V' : 'Clipboard unavailable'
+      );
+    });
+    track('playground_export', { format: 'lyl' });
+    captureEvent('playground_export', { format: 'lyl' });
+  }, [addToast]);
 
   const handleExportDXF = useCallback(() => {
     exportDXF(code);
@@ -156,6 +174,7 @@ export function usePlaygroundActions(): PlaygroundActions {
       handleShare,
       handleExportSTL,
       handleExportSTEP,
+      handleExportLYL,
       handleExportDXF,
       handleExportIFC,
       handleExportFiles,
@@ -171,6 +190,7 @@ export function usePlaygroundActions(): PlaygroundActions {
       handleShare,
       handleExportSTL,
       handleExportSTEP,
+      handleExportLYL,
       handleExportDXF,
       handleExportIFC,
       handleExportFiles,
