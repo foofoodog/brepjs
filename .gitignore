@@ -60,6 +60,7 @@ tmp/
 **/tmp/
 
 # Generated example/render outputs (SVG/HTML produced by running examples)
+/examples/
 examples/output/
 docs/images/examples/
 
