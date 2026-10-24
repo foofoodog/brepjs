@@ -197,6 +197,24 @@ export default function ExampleGallery({
               className="min-w-0 flex-1 bg-transparent text-sm text-gray-200 placeholder:text-gray-500 focus:outline-none"
             />
             <span className="shrink-0 text-xs tabular-nums text-gray-500">{shown.length}</span>
+            <a
+              href={`${import.meta.env.BASE_URL}examples.zip`}
+              download="brepjs-examples.zip"
+              title="Download all examples (.ts & .js) as a ZIP archive"
+              className="ml-1 flex shrink-0 items-center gap-1.5 rounded border border-gray-700 bg-surface-overlay px-2.5 py-1 text-xs font-medium text-gray-200 transition-colors hover:border-gray-500 hover:bg-gray-700 hover:text-white"
+            >
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+                <path
+                  d="M8 2v8m0 0L5 7m3 3l3-3M3 12.5h10"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                />
+              </svg>
+              <span>Download .zip</span>
+            </a>
             <button
               onClick={onClose}
               aria-label="Close"
