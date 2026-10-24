@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlaygroundStore } from '../../stores/playgroundStore';
+import { saveScriptFile } from '../../lib/saveScriptFile';
 import {
   extractScriptParams,
   updateScriptParam,
@@ -47,6 +48,25 @@ function RevertIcon({ className = 'h-3 w-3' }: { className?: string }) {
   );
 }
 
+function SaveIcon({ className = 'h-3 w-3' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M8 2v8m0 0L5 7m3 3l3-3M3 12.5h10" />
+    </svg>
+  );
+}
+
+const STEP_COMMIT_DELAY_MS = 350;
+
 function ParamRow({
   param,
   defaultValue,
@@ -57,14 +77,61 @@ function ParamRow({
   onCommit: (param: ScriptParam, nextValue: ScriptParamValue) => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
-  const displayed = draft ?? String(param.value);
+  const [pendingStepValue, setPendingStepValue] = useState<number | null>(null);
+  const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const paramRef = useRef(param);
+  paramRef.current = param;
+  const onCommitRef = useRef(onCommit);
+  onCommitRef.current = onCommit;
+
+  const clearStepTimer = () => {
+    if (stepTimerRef.current !== null) {
+      clearTimeout(stepTimerRef.current);
+      stepTimerRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (stepTimerRef.current !== null) {
+        clearTimeout(stepTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    clearStepTimer();
+    setPendingStepValue(null);
+  }, [param.value]);
+
+  const effectiveValue: ScriptParamValue = pendingStepValue ?? param.value;
+  const displayed = draft ?? String(effectiveValue);
   const step = stepForParam(param);
   const hasRange =
     param.type === 'number' && param.min !== undefined && param.max !== undefined;
-  const isModified = param.value !== defaultValue;
+  const isModified = effectiveValue !== defaultValue;
+
+  const scheduleStepCommit = (next: number) => {
+    clearStepTimer();
+    setDraft(null);
+    if (next === param.value) {
+      setPendingStepValue(null);
+      return;
+    }
+    setPendingStepValue(next);
+    stepTimerRef.current = setTimeout(() => {
+      stepTimerRef.current = null;
+      setPendingStepValue(null);
+      if (next !== paramRef.current.value) {
+        onCommitRef.current(paramRef.current, next);
+      }
+    }, STEP_COMMIT_DELAY_MS);
+  };
 
   const commitDraft = () => {
     if (draft === null) return;
+    clearStepTimer();
+    setPendingStepValue(null);
     if (param.type === 'string') {
       const next = draft;
       setDraft(null);
@@ -100,8 +167,12 @@ function ParamRow({
             <button
               type="button"
               onClick={() => {
+                clearStepTimer();
+                setPendingStepValue(null);
                 setDraft(null);
-                onCommit(param, defaultValue);
+                if (param.value !== defaultValue) {
+                  onCommit(param, defaultValue);
+                }
               }}
               className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/10 hover:text-teal-light"
               title={`Reset ${param.name} to default (${String(defaultValue)})`}
@@ -175,11 +246,12 @@ function ParamRow({
             <button
               type="button"
               onClick={() => {
-                const numVal = Number(param.value);
+                const draftNum = draft !== null ? Number(draft.trim()) : NaN;
+                const numVal = Number.isFinite(draftNum) ? draftNum : Number(effectiveValue);
                 const next = clampToParamBounds(param, Number((numVal - step).toFixed(4)));
-                if (next !== numVal) onCommit(param, next);
+                if (next !== numVal) scheduleStepCommit(next);
               }}
-              disabled={param.min !== undefined && Number(param.value) <= param.min}
+              disabled={param.min !== undefined && Number(effectiveValue) <= param.min}
               className="flex h-5 w-5 items-center justify-center rounded border border-gray-700 bg-surface-overlay text-xs text-gray-400 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title={`Decrease ${param.name} by ${step}`}
               aria-label={`Decrease ${param.name}`}
@@ -194,6 +266,8 @@ function ParamRow({
               step={param.step ?? 'any'}
               value={displayed}
               onChange={(e) => {
+                clearStepTimer();
+                setPendingStepValue(null);
                 setDraft(e.target.value);
               }}
               onBlur={commitDraft}
@@ -210,11 +284,12 @@ function ParamRow({
             <button
               type="button"
               onClick={() => {
-                const numVal = Number(param.value);
+                const draftNum = draft !== null ? Number(draft.trim()) : NaN;
+                const numVal = Number.isFinite(draftNum) ? draftNum : Number(effectiveValue);
                 const next = clampToParamBounds(param, Number((numVal + step).toFixed(4)));
-                if (next !== numVal) onCommit(param, next);
+                if (next !== numVal) scheduleStepCommit(next);
               }}
-              disabled={param.max !== undefined && Number(param.value) >= param.max}
+              disabled={param.max !== undefined && Number(effectiveValue) >= param.max}
               className="flex h-5 w-5 items-center justify-center rounded border border-gray-700 bg-surface-overlay text-xs text-gray-400 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title={`Increase ${param.name} by ${step}`}
               aria-label={`Increase ${param.name}`}
@@ -233,10 +308,13 @@ function ParamRow({
             min={param.min}
             max={param.max}
             step={step}
-            value={Number(param.value)}
+            value={Number(effectiveValue)}
             onChange={(e) => {
               const next = Number(e.target.value);
-              if (Number.isFinite(next) && next !== param.value) {
+              if (Number.isFinite(next) && next !== effectiveValue) {
+                clearStepTimer();
+                setPendingStepValue(null);
+                setDraft(null);
                 onCommit(param, next);
               }
             }}
@@ -314,7 +392,8 @@ export default function ParametersPanel() {
   if (params.length === 0) return null;
 
   const applyCodeUpdate = (nextCode: string) => {
-    if (nextCode !== code) {
+    const currentCode = usePlaygroundStore.getState().code;
+    if (nextCode !== currentCode) {
       if (window.location.pathname !== import.meta.env.BASE_URL) {
         history.replaceState(null, '', import.meta.env.BASE_URL);
       }
@@ -323,10 +402,13 @@ export default function ParametersPanel() {
   };
 
   const handleCommit = (param: ScriptParam, nextValue: ScriptParamValue) => {
-    if (!defaultsRef.current.has(param.name)) {
-      defaultsRef.current.set(param.name, param.value);
+    const latestCode = usePlaygroundStore.getState().code;
+    const latestParams = latestCode === code ? params : extractScriptParams(latestCode);
+    const targetParam = latestParams.find((p) => p.key === param.key) ?? param;
+    if (!defaultsRef.current.has(targetParam.name)) {
+      defaultsRef.current.set(targetParam.name, targetParam.value);
     }
-    applyCodeUpdate(updateScriptParam(code, param, nextValue));
+    applyCodeUpdate(updateScriptParam(latestCode, targetParam, nextValue));
   };
 
   const handleResetAll = () => {
@@ -358,16 +440,30 @@ export default function ParametersPanel() {
         </button>
         <div className="flex items-center gap-1.5">
           {modifiedParams.length > 0 && (
-            <button
-              type="button"
-              onClick={handleResetAll}
-              className="flex h-4 items-center gap-0.5 rounded px-1 text-[10px] font-medium text-teal-light transition-colors hover:bg-teal-primary/20"
-              title={`Reset ${modifiedParams.length} modified parameter${modifiedParams.length === 1 ? '' : 's'} to defaults`}
-              aria-label="Reset all parameters to defaults"
-            >
-              <RevertIcon className="h-2.5 w-2.5" />
-              <span>Reset</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  void saveScriptFile();
+                }}
+                className="flex h-4 items-center gap-0.5 rounded px-1 text-[10px] font-medium text-teal-light transition-colors hover:bg-teal-primary/20"
+                title={`Save ${fileName}`}
+                aria-label={`Save ${fileName}`}
+              >
+                <SaveIcon className="h-2.5 w-2.5" />
+                <span>Save</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleResetAll}
+                className="flex h-4 items-center gap-0.5 rounded px-1 text-[10px] font-medium text-teal-light transition-colors hover:bg-teal-primary/20"
+                title={`Reset ${modifiedParams.length} modified parameter${modifiedParams.length === 1 ? '' : 's'} to defaults`}
+                aria-label="Reset all parameters to defaults"
+              >
+                <RevertIcon className="h-2.5 w-2.5" />
+                <span>Reset</span>
+              </button>
+            </>
           )}
           <button
             type="button"
