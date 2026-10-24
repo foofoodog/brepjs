@@ -52,7 +52,7 @@ export function useExampleRoute(): ExampleRoute {
   const openGallery = useCallback(() => {
     editorUrl.current = `${window.location.pathname}${window.location.search}`;
     // pushState so the browser Back button closes the gallery.
-    history.pushState(null, '', `${EXAMPLES_PATH}${window.location.search}`);
+    history.pushState(null, '', EXAMPLES_PATH);
     setState({ open: true, focusedId: null });
   }, []);
 
@@ -62,14 +62,14 @@ export function useExampleRoute(): ExampleRoute {
   }, []);
 
   const focusExample = useCallback((id: string) => {
-    history.replaceState(null, '', `${EXAMPLES_PATH}/${id}${window.location.search}`);
+    history.replaceState(null, '', `${EXAMPLES_PATH}/${id}`);
     setState((s) => (s.focusedId === id ? s : { open: true, focusedId: id }));
   }, []);
 
   // Selecting an example loads it and closes the gallery, leaving the friendly
   // /examples/<id> permalink in the address bar so the loaded part is shareable.
   const selectExample = useCallback((id: string) => {
-    history.replaceState(null, '', `${EXAMPLES_PATH}/${id}${window.location.search}`);
+    history.replaceState(null, '', `${EXAMPLES_PATH}/${id}`);
     setState({ open: false, focusedId: id });
   }, []);
 

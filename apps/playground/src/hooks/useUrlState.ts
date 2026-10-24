@@ -51,11 +51,6 @@ export function useUrlState() {
     }
   }, [setCode, setPendingSharedSelections]);
 
-  const updateUrl = (code: string) => {
-    const query = encodeCodeQuery(code, selectionsForUrl());
-    history.replaceState(null, '', `${window.location.pathname}${query}`);
-  };
-
   // Build the canonical permalink and sync it into the address bar, returning
   // the absolute URL so callers can hand it to the native share sheet.
   const buildShareUrl = (code: string): string => {
@@ -82,5 +77,5 @@ export function useUrlState() {
     }
   };
 
-  return { updateUrl, copyShareUrl, buildShareUrl };
+  return { copyShareUrl, buildShareUrl };
 }

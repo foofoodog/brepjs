@@ -35,7 +35,7 @@ export function usePlaygroundActions(): PlaygroundActions {
   const addToast = useToastStore((s) => s.addToast);
   const { runCode, exportSTL, exportSTEP, exportDXF, exportIFC, exportFiles, debouncedRun } =
     useCodeExecution();
-  const { updateUrl, copyShareUrl, buildShareUrl } = useUrlState();
+  const { copyShareUrl, buildShareUrl } = useUrlState();
   const handleScreenshot = useScreenshot();
   const resetViewerDefaults = useViewerStore((s) => s.resetViewerDefaults);
 
@@ -52,10 +52,9 @@ export function usePlaygroundActions(): PlaygroundActions {
 
   const handleRun = useCallback(() => {
     runCode(code);
-    updateUrl(code);
     track('playground_run');
     captureEvent('playground_run');
-  }, [runCode, code, updateUrl]);
+  }, [runCode, code]);
 
   const handleExportSTL = useCallback(() => {
     exportSTL(code);
