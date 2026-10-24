@@ -136,7 +136,9 @@ export function usePlaygroundActions(): PlaygroundActions {
   }, [buildShareUrl, copyShareUrl, code, addToast]);
 
   const handleResetToDefault = useCallback(() => {
-    usePlaygroundStore.getState().setCode(DEFAULT_CODE);
+    const store = usePlaygroundStore.getState();
+    store.setCode(DEFAULT_CODE);
+    store.setFileName('stud-brick.ts');
     clearDraft();
     addToast('Reset to default code');
   }, [addToast]);
@@ -147,7 +149,9 @@ export function usePlaygroundActions(): PlaygroundActions {
   // overwrites edits by accident.
   const handleLoadExample = useCallback(
     (example: Example) => {
-      usePlaygroundStore.getState().setCode(example.code);
+      const store = usePlaygroundStore.getState();
+      store.setCode(example.code);
+      store.setFileName(`${example.id}.ts`);
       addToast(`Loaded: ${example.label}`);
     },
     [addToast]

@@ -66,12 +66,13 @@ interface EditorPanelProps {
 export default function EditorPanel({ onCodeChange, onFormat, jumpToLineRef }: EditorPanelProps) {
   const code = usePlaygroundStore((s) => s.code);
   const setCode = usePlaygroundStore((s) => s.setCode);
+  const fileName = usePlaygroundStore((s) => s.fileName);
+  const setFileName = usePlaygroundStore((s) => s.setFileName);
   const error = usePlaygroundStore((s) => s.error);
   const errorLine = usePlaygroundStore((s) => s.errorLine);
   const addToast = useToastStore((s) => s.addToast);
   const isMobile = useIsMobile();
   const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const [fileName, setFileName] = useState('model.ts');
   const dragDepthRef = useRef(0);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
@@ -247,17 +248,17 @@ export default function EditorPanel({ onCodeChange, onFormat, jumpToLineRef }: E
           addToast(`Failed to read ${file.name}`);
         });
     },
-    [setCode, addToast]
+    [setCode, setFileName, addToast]
   );
 
   const handleSaveFile = useCallback(async () => {
-    const currentCode = usePlaygroundStore.getState().code;
+    const { code: currentCode, fileName: currentFileName } = usePlaygroundStore.getState();
     const win = window as WindowWithSavePicker;
 
     if (typeof win.showSaveFilePicker === 'function') {
       try {
         const handle = await win.showSaveFilePicker({
-          suggestedName: fileName,
+          suggestedName: currentFileName,
           types: [
             {
               description: 'TypeScript File',
@@ -282,13 +283,13 @@ export default function EditorPanel({ onCodeChange, onFormat, jumpToLineRef }: E
     }
 
     // Fallback for browsers without File System Access API (e.g. Firefox/Safari)
-    const chosenName = window.prompt('Save file as:', fileName)?.trim();
+    const chosenName = window.prompt('Save file as:', currentFileName)?.trim();
     if (!chosenName) return;
     const normalizedName = SCRIPT_FILE_RE.test(chosenName) ? chosenName : `${chosenName}.ts`;
     setFileName(normalizedName);
     triggerBlobDownload(currentCode, normalizedName);
     addToast(`Downloaded ${normalizedName}`);
-  }, [fileName, addToast]);
+  }, [setFileName, addToast]);
 
   return (
     <div
@@ -330,8 +331,8 @@ export default function EditorPanel({ onCodeChange, onFormat, jumpToLineRef }: E
           onClick={() => {
             void handleSaveFile();
           }}
-          title="Save code to file"
-          aria-label="Save code to file"
+          title={`Save ${fileName}`}
+          aria-label={`Save ${fileName}`}
           className="pointer-events-auto flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
         >
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">

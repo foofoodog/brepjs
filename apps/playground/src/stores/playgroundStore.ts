@@ -21,6 +21,7 @@ export interface ContextMenuState {
 
 interface PlaygroundState {
   code: string;
+  fileName: string;
   meshes: MeshData[];
   error: string | null;
   errorLine: number | null;
@@ -55,6 +56,7 @@ interface PlaygroundState {
   pendingSharedSelections: SharedSelection[];
 
   setCode: (code: string) => void;
+  setFileName: (fileName: string) => void;
   setMeshes: (meshes: MeshData[]) => void;
   setAvailableArtifacts: (artifacts: string[]) => void;
   setBimTree: (tree: BimTreeSummary | null) => void;
@@ -86,6 +88,7 @@ function sameEntity(a: Selection, b: Selection): boolean {
 
 export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   code: DEFAULT_CODE,
+  fileName: 'stud-brick.ts',
   meshes: [],
   error: null,
   errorLine: null,
@@ -106,6 +109,7 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   pendingSharedSelections: [],
 
   setCode: (code) => set({ code }),
+  setFileName: (fileName) => set({ fileName }),
   // Drop selections on every new render — they're bound to the mesh by
   // faceId/edgeId and the new mesh likely won't have the same ids.
   setMeshes: (meshes) =>
