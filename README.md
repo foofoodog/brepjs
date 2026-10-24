@@ -20,7 +20,7 @@ CAD modeling for JavaScript.
 
 > ### Fork Enhancements (`foofoodog/brepjs`)
 >
-> **[▶ Launch the Live Playground](https://foofoodog.github.io/brepjs/)** (hosted on GitHub Pages)
+> **[▶ Launch the Live Playground](https://foofoodog.github.io/brepjs/)** (hosted on GitHub Pages) · **[Full Fork Changelog (`changes.md`)](./changes.md)**
 >
 > This fork extends the `brepjs` Playground with:
 >
