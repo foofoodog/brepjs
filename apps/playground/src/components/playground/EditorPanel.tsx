@@ -135,6 +135,9 @@ export default function EditorPanel({ onCodeChange, onFormat, jumpToLineRef }: E
       // sync effect/mount reconcile just recorded; typing differs from it.
       const isExternal = newCode === lastUserCodeRef.current;
       lastUserCodeRef.current = newCode;
+      if (!isExternal && window.location.pathname !== import.meta.env.BASE_URL) {
+        history.replaceState(null, '', import.meta.env.BASE_URL);
+      }
       setCode(newCode);
       onCodeChange(newCode, { immediate: isExternal });
     },
@@ -240,6 +243,9 @@ export default function EditorPanel({ onCodeChange, onFormat, jumpToLineRef }: E
       void file
         .text()
         .then((content) => {
+          if (window.location.pathname !== import.meta.env.BASE_URL) {
+            history.replaceState(null, '', import.meta.env.BASE_URL);
+          }
           setFileName(file.name);
           setCode(content);
           addToast(`Loaded ${file.name}`);

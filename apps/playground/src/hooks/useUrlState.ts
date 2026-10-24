@@ -42,12 +42,14 @@ export function useUrlState() {
     }
 
     setCode(result.code);
+    usePlaygroundStore.getState().setFileName('model.ts');
     if (result.selections.length > 0) {
       setPendingSharedSelections(result.selections);
     }
 
-    if (result.legacy) {
-      const next = `${url.pathname}${encodeCodeQuery(result.code)}`;
+    const basePath = import.meta.env.BASE_URL;
+    if (result.legacy || url.pathname !== basePath) {
+      const next = `${basePath}${encodeCodeQuery(result.code, result.selections)}`;
       history.replaceState(null, '', next);
     }
   }, [setCode, setPendingSharedSelections]);
@@ -56,9 +58,10 @@ export function useUrlState() {
   // the absolute URL so callers can hand it to the native share sheet.
   const buildShareUrl = (code?: string): string => {
     const currentCode = code ?? usePlaygroundStore.getState().code;
+    const basePath = import.meta.env.BASE_URL;
     const query = encodeCodeQuery(currentCode, selectionsForUrl());
-    const url = `${window.location.origin}${window.location.pathname}${query}`;
-    history.replaceState(null, '', `${window.location.pathname}${query}`);
+    const url = `${window.location.origin}${basePath}${query}`;
+    history.replaceState(null, '', `${basePath}${query}`);
     return url;
   };
 
