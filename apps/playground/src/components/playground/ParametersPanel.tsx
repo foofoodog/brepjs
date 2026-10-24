@@ -424,8 +424,8 @@ export default function ParametersPanel() {
   };
 
   return (
-    <div className="pointer-events-auto flex max-h-96 w-72 flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface/95 shadow-xl backdrop-blur">
-      <div className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
+    <div className="pointer-events-auto flex max-h-full min-h-0 w-72 flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface/95 shadow-xl backdrop-blur">
+      <div className="flex shrink-0 items-center justify-between border-b border-border-subtle px-3 py-2">
         <button
           type="button"
           onClick={() => {
@@ -495,7 +495,7 @@ export default function ParametersPanel() {
       </div>
 
       {!collapsed && showHelp && (
-        <div className="border-b border-border-subtle bg-gray-950/90 px-3 py-2 text-[10px] leading-relaxed text-gray-300">
+        <div className="shrink-0 border-b border-border-subtle bg-gray-950/90 px-3 py-2 text-[10px] leading-relaxed text-gray-300">
           <div className="mb-1 font-semibold text-teal-light">Customizer Syntax</div>
           <pre className="overflow-x-auto font-mono text-[9.5px] text-gray-400">
 {`// Range slider [min:step:max]
@@ -515,7 +515,7 @@ const tag: string = 'ISO';
       )}
 
       {!collapsed && (
-        <div className="scrollbar-thin divide-y divide-border-subtle/50 overflow-y-auto py-1">
+        <div className="scrollbar-thin divide-y divide-border-subtle/50 min-h-0 overflow-y-auto py-1">
           {sections.map((section, idx) => (
             <div key={section.title || idx} className="divide-y divide-border-subtle/30">
               {section.title && (

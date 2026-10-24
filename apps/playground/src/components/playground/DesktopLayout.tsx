@@ -98,7 +98,7 @@ export default function DesktopLayout({
         {isViewerCollapsed ? null : (
           <div className="relative h-full w-full">
             <ViewerPanel />
-            <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-h-[85%] flex-col gap-2">
+            <div className="pointer-events-none absolute bottom-3 left-3 top-3 z-10 flex flex-col gap-2 overflow-hidden">
               <ParametersPanel />
               <BimTreePanel />
             </div>
