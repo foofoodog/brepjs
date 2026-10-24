@@ -14,6 +14,7 @@ import { useAutoExpandOnError } from '../../hooks/useAutoExpandOnError';
 import { useExampleRoute } from '../../hooks/useExampleRoute';
 import { SHORTCUTS } from '../../lib/shortcuts';
 import { EXAMPLES, type Example } from '../../lib/examples';
+import { hasShareParams } from '../../lib/urlCodec';
 import { startWASMPreload } from '../../lib/wasmPreloader.js';
 import Toolbar from './Toolbar';
 import StatusBar from './StatusBar';
@@ -77,12 +78,20 @@ export default function PlaygroundPage() {
 
   // Deep link: landing on /playground/examples/<id> is a permalink to that
   // example — load it into the editor so the shared link opens the running part.
+  // If the URL also carries `?code=...` (an edited example shared via Share),
+  // keep the shared code from useUrlState and only sync the example filename.
   // Runs once on mount; in-gallery navigation loads via onSelect instead.
   useEffect(() => {
     const id = exampleRoute.focusedId;
     if (!exampleRoute.open && id) {
       const example = EXAMPLES.find((e) => e.id === id);
-      if (example) actions.handleLoadExample(example);
+      if (example) {
+        if (hasShareParams(new URL(window.location.href))) {
+          usePlaygroundStore.getState().setFileName(`${example.id}.ts`);
+        } else {
+          actions.handleLoadExample(example);
+        }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once, on initial deep-land
   }, []);

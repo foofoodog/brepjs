@@ -112,9 +112,10 @@ export function usePlaygroundActions(): PlaygroundActions {
   // familiar copy-to-clipboard + toast. A dismissed share sheet rejects with
   // AbortError, which we swallow.
   const handleShare = useCallback(() => {
+    const latestCode = usePlaygroundStore.getState().code;
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
     if (coarse && typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-      const url = buildShareUrl(code);
+      const url = buildShareUrl(latestCode);
       void navigator
         .share({ title: 'brepjs Playground', url })
         // Only count a share once the sheet actually completes — a dismissed
@@ -127,12 +128,12 @@ export function usePlaygroundActions(): PlaygroundActions {
           /* user dismissed the share sheet */
         });
     } else {
-      void copyShareUrl(code);
+      void copyShareUrl(latestCode);
       addToast('Link copied to clipboard');
       track('playground_share');
       captureEvent('playground_share');
     }
-  }, [buildShareUrl, copyShareUrl, code, addToast]);
+  }, [buildShareUrl, copyShareUrl, addToast]);
 
   const handleResetToDefault = useCallback(() => {
     const store = usePlaygroundStore.getState();
