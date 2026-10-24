@@ -20,7 +20,7 @@ CAD modeling for JavaScript.
 
 > ### Fork Enhancements (`foofoodog/brepjs`)
 >
-> **[▶ Launch the Live Playground](https://foofoodog.github.io/brepjs/)** (hosted on GitHub Pages) · **[Full Fork Changelog (`changes.md`)](./changes.md)**
+> **[▶ Launch the Live Playground](https://foofoodog.github.io/brepjs/)** (hosted on GitHub Pages) · **[Full Fork Changelog (`changes.md`)](https://github.com/foofoodog/brepjs/blob/main/changes.md)**
 >
 > This fork extends the `brepjs` Playground with:
 >
@@ -28,7 +28,7 @@ CAD modeling for JavaScript.
 > - **Drag-and-Drop Script Loading:** Drag `.ts` or `.js` files from your computer straight into the Monaco editor to load and run them.
 > - **Save Code to Disk:** Floating **Save** button in the editor using the native OS _Save As_ dialog (`showSaveFilePicker`) with a prompt/download fallback.
 > - **Downloadable Examples Archive:** One-click **Download .zip** button in the Examples gallery containing all standalone `.ts` and `.js` example scripts.
-> - **Interactive Parameters / Customizer Panel:** Live viewport **Parameters** panel that automatically extracts editable arguments and constants from scripts and supports TypeScript union types and OpenSCAD Customizer comment annotations (`[min:step:max]`, dropdowns, toggles, `/* [Section] */`). See **[Customizer & Parameters Guide](./docs/customizer-parameters.md)**.
+> - **Interactive Parameters / Customizer Panel:** Live viewport **Parameters** panel that automatically extracts editable arguments and constants from scripts and supports TypeScript union types and OpenSCAD Customizer comment annotations (`[min:step:max]`, dropdowns, toggles, `/* [Section] */`). See **[Customizer & Parameters Guide](https://github.com/foofoodog/brepjs/blob/main/docs/customizer-parameters.md)**.
 
 Shapes are exact mathematical boundaries (not triangle meshes), so booleans are precise, measurements are real, and you can export to STEP. TypeScript types prove the geometry is valid at compile time.
 
