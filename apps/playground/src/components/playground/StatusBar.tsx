@@ -57,16 +57,26 @@ export default function StatusBar() {
           brepjs v{__BREPJS_VERSION__} · OCCT
         </span>
       </div>
-      {lastSelection && (
-        <div className="flex min-w-0 items-center gap-2 truncate whitespace-nowrap text-gray-300">
-          {selections.length > 1 && (
-            <span className="rounded bg-teal-primary/20 px-1.5 py-0.5 text-teal-light">
-              {selections.length} selected
-            </span>
-          )}
-          <SelectionLine selection={lastSelection} />
-        </div>
-      )}
+      <div className="flex min-w-0 items-center gap-3">
+        {lastSelection && (
+          <div className="flex min-w-0 items-center gap-2 truncate whitespace-nowrap text-gray-300">
+            {selections.length > 1 && (
+              <span className="rounded bg-teal-primary/20 px-1.5 py-0.5 text-teal-light">
+                {selections.length} selected
+              </span>
+            )}
+            <SelectionLine selection={lastSelection} />
+          </div>
+        )}
+        <a
+          href="https://layerling.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="shrink-0 text-gray-500 transition-colors hover:text-gray-300"
+        >
+          layerling.com
+        </a>
+      </div>
     </div>
   );
 }
