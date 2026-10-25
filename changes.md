@@ -47,18 +47,14 @@ This document tracks the user-facing features, build/deployment changes, and com
 - Removed 17 unused upstream GitHub Actions workflows (npm release-please/trusted-publisher workflows, CLA bot, Dependabot auto-merge, OSV cron scan, Vercel smoke test, and Anthropic/Langfuse eval workflows).
 - Updated `repository.url` across `package.json` manifests to `https://github.com/foofoodog/brepjs`.
 
-### 7. Interactive Parameters / Customizer Panel & Code Pane Toggle
+### 7. Interactive Parameters & Customizer Panel
 
-- Added a live **Parameters** panel in the top-left of the 3D viewport (`ParametersPanel.tsx` + `scriptParams.ts`) that automatically extracts editable parameters directly from the script without requiring changes to existing examples:
-  - Exported function call-site arguments, positional defaults, and destructured object parameter defaults (`Arguments`).
-  - Top-level and exported-function-body `const` literals (`Constants`) with trailing/preceding `//` comment descriptions.
-  - **TypeScript Type Annotations:** Literal union types (`'M4' | 'M6' | 'M8'`, `4 | 6 | 8`, or `type` aliases) automatically render as dropdowns; explicit `: string` types render as text inputs; booleans render as toggle switches.
-  - **OpenSCAD Customizer Comment Metadata:** Supports range sliders (`// [min:max]`, `// [min:step:max]`), labeled or unlabeled dropdowns (`// [a, b, c]`, `// [val:Label, ...]`), custom section headers (`/* [Section Name] */`), and hidden variables (`/* [Hidden] */` or `// [hidden]`).
-  - **Save & Reset to Defaults (`↺`):** Includes per-parameter revert buttons, header `Save` and `↺ Reset` buttons when any parameters are modified, and debounced (350ms) `+`/`−` step buttons to batch rapid clicks before updating.
-  - **Auto-Refresh Toggle & On-Demand Refresh:** Header icons to pause live evaluation (preventing expensive WASM runs while batching parameter edits) and trigger on-demand recomputation when paused, with pending-change dot indicator and auto-catchup on resume.
-  - **Invalid Parameter Error Highlighting:** Flags parameters in red (with `!` status badge, red-bordered controls, inline `Invalid` indicator with full error tooltip on hover, and header error counter) whenever a parameter change causes a geometry or processing error (such as setting `plateUnits` to 0 in stud brick), automatically clearing once a valid value is entered or reset.
-  - **Full-Height Layout & Syntax Help (`?`):** Panel anchors from top-to-bottom of the viewport (`top-3 bottom-3` container and `max-h-full min-h-0`) eliminating unnecessary scrollbars, with an inline `?` syntax cheat-sheet and full documentation in [`docs/customizer-parameters.md`](https://github.com/foofoodog/brepjs/blob/main/docs/customizer-parameters.md).
-- Added **Hide Code / Show Code** toggle controls in the top toolbar (`Toolbar.tsx`) and a collapse (`«`) icon button next to **Save** in `EditorPanel.tsx` so the code pane can be collapsed to give the 3D viewport and Parameters panel 100% width.
+- **Visual Customizer Overlay:** Added an interactive **Parameters** panel over the 3D viewer that lets anyone customize 3D models using sliders, dropdown menus, number steppers, and toggle switches without editing code.
+- **Automatic Controls:** Automatically detects configurable values and comment annotations (such as OpenSCAD ranges and option lists) from the model to build user-friendly controls.
+- **Pause & On-Demand Refresh:** Pause live 3D recomputation while tweaking multiple dimensions, then update the model on demand with a single click.
+- **Smart Error Highlighting:** Highlights problematic inputs in red with an `Invalid` badge if a value causes a 3D geometry error, automatically clearing once fixed or reset.
+- **Save & Reset:** Easily revert any parameter or all settings back to original defaults, with a `Save` button to keep your customized values.
+- **Focus Mode (Hide Code):** Added toolbar and editor toggle buttons to collapse the code editor completely, giving the 3D viewer and customizer full screen width.
 
 ---
 
@@ -85,4 +81,4 @@ This document tracks the user-facing features, build/deployment changes, and com
 | `5c4717f0` | 2026-10-24 | `fix(playground): bundle Monaco editor worker and gate Vercel analytics on non-Vercel hosts`    | Configured `MonacoEnvironment.getWorker` with explicit Vite worker imports for `editor.worker` and `ts.worker` to prevent dynamic import failures, and only load Vercel analytics/speed-insights scripts when hosted on Vercel.                               |
 | `f2f7b926` | 2026-10-24 | `feat(playground): allow Parameters panel to expand to full viewport height`                    | Replaced the fixed `max-h-96` clamp with viewport height anchoring (`top-3 bottom-3` container and `max-h-full min-h-0`), eliminating the vertical scrollbar whenever parameters fit on screen.                                                               |
 | `260f052f` | 2026-10-24 | `feat(playground): add auto-refresh toggle and on-demand refresh to Parameters panel`           | Added an auto-refresh toggle icon and conditional on-demand refresh button to `ParametersPanel` to batch parameter modifications without triggering expensive kernel computations on every change.                                                            |
-| `b8353b49` | 2026-10-24 | `feat(playground): highlight invalid parameters in red on processing errors`                    | Added error detection and red status styling (`!` badge, red borders, inline 'Invalid' label, and header counter) to `ParametersPanel` when a parameter change causes a geometry kernel or processing error.                                                  |
+| `382f8f9e` | 2026-10-24 | `feat(playground): highlight invalid parameters in red on processing errors`                    | Added error detection and red status styling (`!` badge, red borders, inline 'Invalid' label, and header counter) to `ParametersPanel` when a parameter change causes a geometry kernel or processing error.                                                  |
