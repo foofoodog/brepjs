@@ -8,44 +8,37 @@ This document tracks the user-facing features, build/deployment changes, and com
 
 ## Feature & Infrastructure Summary
 
-### 1. Layerling (`LYL`) Clipboard Export
+### 1. One-Click Layerling 3D Export
 
-- Added an **LYL** export button to the desktop toolbar, mobile action sheet, and command palette (`Export LYL (Copy for Layerling)`).
-- Serializes all currently rendered 3D meshes into Layerling's custom-mesh clipboard JSON format (`__layerlingClipboard: 1`) with Z-up → Y-up coordinate conversion and copies it to the system clipboard so models can be pasted directly into Layerling with `Ctrl+V`.
-- Improved `copyToClipboard` fallback handling for large payloads when `navigator.clipboard.writeText` is unavailable or rejects.
+- **Direct Copy to Layerling:** Added an **LYL** button to copy your finished 3D models straight to your system clipboard so you can paste them directly into Layerling with `Ctrl+V`.
+- **Automatic Orientation:** Automatically aligns coordinate axes so models paste seamlessly without needing manual rotation.
+- **Reliable Sharing:** Works across desktop, mobile, and command palettes, with fallbacks for large models.
 
-### 2. Editor Drag-and-Drop Script Loading
+### 2. Drag-and-Drop File Loading
 
-- Enabled dragging and dropping `.ts`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`, `.tsx`, and `.jsx` files directly onto the Monaco editor panel.
-- Added a visual drop-target overlay while dragging files over the editor.
-- Loads dropped file contents into the editor (preserving the undo stack via Monaco's `pushEditOperations`), updates the active filename, clears any `/examples/<id>` route back to the root path, and immediately evaluates the model.
+- **Drag and Drop:** Easily open local model files by dragging and dropping them straight onto the code editor.
+- **Instant Preview:** Automatically loads and generates the 3D model immediately while preserving your undo/redo history.
+- **Visual Feedback:** Highlights the drop zone when you drag a file over the screen.
 
-### 3. Editor Save Button (Native Save As Dialog)
+### 3. File Saving with Smart Filenames
 
-- Added a floating **Save** button in the top-right corner of the Monaco editor panel.
-- Uses the browser File System Access API (`window.showSaveFilePicker`) to prompt for both a save folder and filename (`.ts` or `.js`), falling back to a filename prompt + browser download when `showSaveFilePicker` is unsupported.
-- Automatically syncs the default save filename (`fileName` in `playgroundStore`) when:
-  - Selecting an example from the gallery or deep-linking to `/examples/<id>` (e.g. `axial-fan.ts`)
-  - Dragging and dropping a file into the editor
-  - Resetting to the default model (`stud-brick.ts`)
+- **Save to Your Computer:** Added a **Save** button in the code editor to save models directly to your computer using your system's native file dialog.
+- **Smart Naming:** Automatically names the file based on the active model or example you are working on (e.g. `axial-fan.ts`), or matches the file you dropped in.
 
-### 4. Standalone Examples Archive (`examples.zip`)
+### 4. Download All Examples (.zip)
 
-- Added `apps/playground/scripts/packExamples.ts` to extract all 73 playground models (the default `stud-brick` model plus all 72 categorized examples) in both `.ts` and `.js` formats (146 files total) and compress them into `dist/examples.zip` at build time.
-- Added a **Download .zip** button in the header of the **Examples** gallery modal so users can download all standalone example scripts in one click.
+- **One-Click Download:** Added a **Download .zip** button inside the Examples gallery to download all 73 built-in CAD models in a single archive.
+- **Ready to Use:** Includes both TypeScript and JavaScript versions of every example, ready for local offline editing.
 
-### 5. URL & Share Link Cleanup
+### 5. Cleaner Links & Sharing
 
-- Stopped the **Run** button from appending compressed `?code=...` strings to the address bar; `?code=...` is now only written when explicitly clicking **Share**.
-- Kept `/examples/<id>` URLs clean when browsing or selecting examples in the gallery.
-- Updated **Share** to always read the latest editor buffer from the store, strip `/examples/<id>` back to the root playground path (`/?code=...`), and load shared `?code=...` links as a clean blank slate without being overwritten by example templates.
-- Fixed the toolbar `brepjs` logo link to use `import.meta.env.BASE_URL` instead of hardcoded `/`.
+- **Clean Web Addresses:** Browsing examples and running models keeps the browser address bar tidy without cluttering it with long code strings.
+- **One-Click Sharing:** Clicking **Share** creates a clean, sharable web link containing your exact model state so others can open and view it instantly.
 
-### 6. GitHub Pages Auto-Deploy & Workflow Cleanup
+### 6. Live Website & Project Cleanup
 
-- Added `.github/workflows/pages.yml` to automatically build `brepjs` and `apps/playground` (with dynamic `VITE_BASE_PATH`, SPA `404.html` fallback, and `/playground/` redirect) and deploy to GitHub Pages on every push to `main`.
-- Removed 17 unused upstream GitHub Actions workflows (npm release-please/trusted-publisher workflows, CLA bot, Dependabot auto-merge, OSV cron scan, Vercel smoke test, and Anthropic/Langfuse eval workflows).
-- Updated `repository.url` across `package.json` manifests to `https://github.com/foofoodog/brepjs`.
+- **Automatic Web Publishing:** The playground website updates automatically on GitHub Pages whenever new changes are pushed.
+- **Streamlined Project:** Removed unused development bots and publishing automation to keep the codebase fast and focused.
 
 ### 7. Interactive Parameters & Customizer Panel
 
