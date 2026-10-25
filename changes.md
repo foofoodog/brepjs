@@ -6,7 +6,7 @@ This document tracks the user-facing features, build/deployment changes, and com
 
 ---
 
-## Feature & Infrastructure Summary
+## Feature Summary
 
 ### 1. One-Click Layerling 3D Export
 
@@ -35,12 +35,7 @@ This document tracks the user-facing features, build/deployment changes, and com
 - **Clean Web Addresses:** Browsing examples and running models keeps the browser address bar tidy without cluttering it with long code strings.
 - **One-Click Sharing:** Clicking **Share** creates a clean, sharable web link containing your exact model state so others can open and view it instantly.
 
-### 6. Live Website & Project Cleanup
-
-- **Automatic Web Publishing:** The playground website updates automatically on GitHub Pages whenever new changes are pushed.
-- **Streamlined Project:** Removed unused development bots and publishing automation to keep the codebase fast and focused.
-
-### 7. Interactive Parameters & Customizer Panel
+### 6. Interactive Parameters & Customizer Panel
 
 - **Visual Customizer Overlay:** Added an interactive **Parameters** panel over the 3D viewer that lets anyone customize 3D models using sliders, dropdown menus, number steppers, and toggle switches without editing code.
 - **Automatic Controls:** Automatically detects configurable values and comment annotations (such as OpenSCAD ranges and option lists) from the model to build user-friendly controls.
