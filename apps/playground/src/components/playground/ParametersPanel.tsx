@@ -65,6 +65,55 @@ function SaveIcon({ className = 'h-3 w-3' }: { className?: string }) {
   );
 }
 
+function AutoRefreshIcon({
+  active,
+  className = 'h-3 w-3',
+}: {
+  active: boolean;
+  className?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M2.5 8a5.5 5.5 0 0 1 9.35-3.89L13.5 5.5" />
+      <path d="M13.5 2v3.5h-3.5" />
+      <path d="M13.5 8a5.5 5.5 0 0 1-9.35 3.89L2.5 10.5" />
+      <path d="M2.5 14v-3.5h3.5" />
+      <path d="M6.3 10.2L8 5.8l1.7 4.4" strokeWidth="1.2" />
+      <path d="M6.9 9h2.2" strokeWidth="1.2" />
+      {!active && (
+        <line x1="2.5" y1="2.5" x2="13.5" y2="13.5" stroke="#f87171" strokeWidth="1.6" />
+      )}
+    </svg>
+  );
+}
+
+function RefreshNowIcon({ className = 'h-3 w-3' }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M14 8a6 6 0 1 1-2-4.5L14 5.5" />
+      <path d="M14 2v3.5h-3.5" />
+    </svg>
+  );
+}
+
 const STEP_COMMIT_DELAY_MS = 350;
 
 function ParamRow({
@@ -334,12 +383,35 @@ function ParamRow({
   );
 }
 
-export default function ParametersPanel() {
+export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) {
   const code = usePlaygroundStore((s) => s.code);
   const fileName = usePlaygroundStore((s) => s.fileName);
   const setCode = usePlaygroundStore((s) => s.setCode);
+  const autoRefresh = usePlaygroundStore((s) => s.autoRefresh);
+  const setAutoRefresh = usePlaygroundStore((s) => s.setAutoRefresh);
+  const requestRun = usePlaygroundStore((s) => s.requestRun);
+  const isRunning = usePlaygroundStore((s) => s.isRunning);
+  const lastSuccessfulCode = usePlaygroundStore((s) => s.lastSuccessfulCode);
   const [collapsed, setCollapsed] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+
+  const hasPendingChanges = lastSuccessfulCode !== null && code !== lastSuccessfulCode;
+
+  const handleRefresh = () => {
+    if (onRun) {
+      onRun();
+    } else {
+      requestRun();
+    }
+  };
+
+  const handleToggleAutoRefresh = () => {
+    const next = !autoRefresh;
+    setAutoRefresh(next);
+    if (next && code !== lastSuccessfulCode) {
+      handleRefresh();
+    }
+  };
 
   // Track initial default values per parameter for the active script
   const defaultsRef = useRef<Map<string, ScriptParamValue>>(new Map());
@@ -424,21 +496,21 @@ export default function ParametersPanel() {
   };
 
   return (
-    <div className="pointer-events-auto flex max-h-full min-h-0 w-72 flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface/95 shadow-xl backdrop-blur">
-      <div className="flex shrink-0 items-center justify-between border-b border-border-subtle px-3 py-2">
+    <div className="pointer-events-auto flex max-h-full min-h-0 w-72 sm:w-80 flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface/95 shadow-xl backdrop-blur">
+      <div className="flex shrink-0 items-center justify-between gap-1.5 border-b border-border-subtle px-3 py-2">
         <button
           type="button"
           onClick={() => {
             setCollapsed((c) => !c);
           }}
-          className="flex flex-1 items-center gap-1.5 text-left text-xs font-semibold text-gray-200 transition-colors hover:text-white"
+          className="flex min-w-0 flex-1 items-center gap-1.5 text-left text-xs font-semibold text-gray-200 transition-colors hover:text-white"
           title={collapsed ? 'Expand parameters' : 'Collapse parameters'}
           aria-expanded={!collapsed}
         >
-          <span className="text-teal-primary">⚙</span>
-          <span>Parameters</span>
+          <span className="shrink-0 text-teal-primary">⚙</span>
+          <span className="truncate">Parameters</span>
         </button>
-        <div className="flex items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1">
           {modifiedParams.length > 0 && (
             <>
               <button
@@ -465,6 +537,60 @@ export default function ParametersPanel() {
               </button>
             </>
           )}
+
+          {/* Auto-refresh toggle */}
+          <button
+            type="button"
+            onClick={handleToggleAutoRefresh}
+            className={`flex h-4 w-4 items-center justify-center rounded transition-colors ${
+              autoRefresh
+                ? 'bg-teal-primary/20 text-teal-light'
+                : 'text-gray-400 hover:bg-white/10 hover:text-white'
+            }`}
+            title={
+              autoRefresh
+                ? 'Auto-refresh is ON — changes update preview immediately (click to pause)'
+                : 'Auto-refresh is OFF — changes will not recompute automatically (click to resume)'
+            }
+            aria-label={
+              autoRefresh
+                ? 'Pause auto-refresh'
+                : 'Resume auto-refresh'
+            }
+          >
+            <AutoRefreshIcon active={autoRefresh} className="h-3 w-3" />
+          </button>
+
+          {/* Refresh now (shown when auto-refresh is off) */}
+          {!autoRefresh && (
+            <button
+              type="button"
+              onClick={handleRefresh}
+              disabled={isRunning}
+              className={`relative flex h-4 w-4 items-center justify-center rounded transition-colors ${
+                hasPendingChanges
+                  ? 'bg-teal-primary/20 text-teal-light ring-1 ring-teal-primary/60 hover:bg-teal-primary/30'
+                  : 'text-gray-400 hover:bg-white/10 hover:text-white'
+              } disabled:cursor-not-allowed disabled:opacity-50`}
+              title={
+                isRunning
+                  ? 'Computing...'
+                  : hasPendingChanges
+                    ? 'Refresh now (changes pending)'
+                    : 'Refresh preview now'
+              }
+              aria-label="Refresh preview now"
+            >
+              <RefreshNowIcon className={`h-2.5 w-2.5 ${isRunning ? 'animate-spin' : ''}`} />
+              {hasPendingChanges && !isRunning && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-teal-light ring-1 ring-surface"
+                  aria-hidden="true"
+                />
+              )}
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => {

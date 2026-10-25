@@ -15,6 +15,7 @@ interface Props {
   formatRef: { current: (() => void) | null };
   jumpToLineRef: { current: ((line: number) => void) | null };
   onJumpToLine: (line: number) => void;
+  onRun?: () => void;
 }
 
 export default function DesktopLayout({
@@ -23,6 +24,7 @@ export default function DesktopLayout({
   formatRef,
   jumpToLineRef,
   onJumpToLine,
+  onRun,
 }: Props) {
   const isConsoleCollapsed = usePlaygroundStore((s) => s.isConsoleCollapsed);
   const isViewerCollapsed = usePlaygroundStore((s) => s.isViewerCollapsed);
@@ -99,7 +101,7 @@ export default function DesktopLayout({
           <div className="relative h-full w-full">
             <ViewerPanel />
             <div className="pointer-events-none absolute bottom-3 left-3 top-3 z-10 flex flex-col gap-2 overflow-hidden">
-              <ParametersPanel />
+              <ParametersPanel onRun={onRun} />
               <BimTreePanel />
             </div>
             <FlatPatternPanel />

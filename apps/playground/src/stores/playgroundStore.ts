@@ -41,6 +41,8 @@ interface PlaygroundState {
   isViewerCollapsed: boolean;
   isEditorCollapsed: boolean;
   lastSuccessfulCode: string | null;
+  autoRefresh: boolean;
+  runRequestSeq: number;
   // Monotonic counter bumped once per successful render (via markRendered). The
   // mobile shell compares it against the value it last showed to flag the Viewer
   // tab when a result changed while the user was on another tab. Deliberately
@@ -69,6 +71,9 @@ interface PlaygroundState {
   setViewerCollapsed: (collapsed: boolean) => void;
   setEditorCollapsed: (collapsed: boolean) => void;
   setLastSuccessfulCode: (code: string) => void;
+  setAutoRefresh: (autoRefresh: boolean) => void;
+  toggleAutoRefresh: () => void;
+  requestRun: () => void;
   markRendered: () => void;
   pickSelection: (selection: Selection, additive: boolean) => void;
   clearSelections: () => void;
@@ -102,6 +107,8 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   isViewerCollapsed: false,
   isEditorCollapsed: false,
   lastSuccessfulCode: null,
+  autoRefresh: true,
+  runRequestSeq: 0,
   runSeq: 0,
   selections: [],
   hoverEntity: null,
@@ -132,6 +139,9 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   setViewerCollapsed: (isViewerCollapsed) => set({ isViewerCollapsed }),
   setEditorCollapsed: (isEditorCollapsed) => set({ isEditorCollapsed }),
   setLastSuccessfulCode: (lastSuccessfulCode) => set({ lastSuccessfulCode }),
+  setAutoRefresh: (autoRefresh) => set({ autoRefresh }),
+  toggleAutoRefresh: () => set((s) => ({ autoRefresh: !s.autoRefresh })),
+  requestRun: () => set((s) => ({ runRequestSeq: s.runRequestSeq + 1 })),
   markRendered: () => set((s) => ({ runSeq: s.runSeq + 1 })),
   pickSelection: (selection, additive) =>
     set((s) => {

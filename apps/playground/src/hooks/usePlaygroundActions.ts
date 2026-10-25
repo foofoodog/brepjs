@@ -42,8 +42,12 @@ export function usePlaygroundActions(): PlaygroundActions {
   // Typing debounces; an external buffer swap (example/share/draft load) runs
   // immediately so the viewer reflects the switch without the 450 ms typing
   // delay — that lag was what made example switching feel unreliable.
+  // When autoRefresh is paused, automatic execution on code change is suppressed
+  // so the user can tweak parameters or edit code without firing expensive kernel runs.
   const onCodeChange = useCallback(
     (newCode: string, opts?: { immediate?: boolean }) => {
+      const autoRefresh = usePlaygroundStore.getState().autoRefresh;
+      if (!autoRefresh) return;
       if (opts?.immediate) runCode(newCode);
       else debouncedRun(newCode);
     },
@@ -141,7 +145,8 @@ export function usePlaygroundActions(): PlaygroundActions {
     store.setFileName('stud-brick.ts');
     clearDraft();
     addToast('Reset to default code');
-  }, [addToast]);
+    runCode(DEFAULT_CODE);
+  }, [addToast, runCode]);
 
   // Loading swaps the editor buffer through the store; EditorPanel's sync
   // effect picks it up and replaces content via Monaco's pushEditOperations,
@@ -153,8 +158,9 @@ export function usePlaygroundActions(): PlaygroundActions {
       store.setCode(example.code);
       store.setFileName(`${example.id}.ts`);
       addToast(`Loaded: ${example.label}`);
+      runCode(example.code);
     },
-    [addToast]
+    [addToast, runCode]
   );
 
   // copyToClipboard handles both undefined `navigator.clipboard` (HTTP /

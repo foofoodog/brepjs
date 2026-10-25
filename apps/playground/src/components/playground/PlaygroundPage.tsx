@@ -110,6 +110,14 @@ export default function PlaygroundPage() {
   useShortcutHelpKey(toggleShortcutHelp);
   useAutoExpandOnError(error, panels.consolePanelRef, panels.editorAreaPanelRef);
 
+  useEffect(() => {
+    return usePlaygroundStore.subscribe((state, prevState) => {
+      if (state.runRequestSeq !== prevState.runRequestSeq) {
+        actions.handleRun();
+      }
+    });
+  }, [actions.handleRun]);
+
   const commands = usePlaygroundCommands({
     actions,
     panels,
@@ -154,6 +162,7 @@ export default function PlaygroundPage() {
           formatRef={editorBridges.formatRef}
           jumpToLineRef={editorBridges.jumpToLineRef}
           onJumpToLine={editorBridges.onJumpToLine}
+          onRun={actions.handleRun}
         />
       )}
 

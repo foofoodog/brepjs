@@ -149,7 +149,23 @@ const clearanceEps = 0.001; // Ignored by the Parameters panel
 
 ---
 
-## 4. Complete Example
+## 4. Auto-Refresh Toggle & Batching Parameter Tweaks
+
+When working with complex CAD geometry (such as heavy filleting, intricate boolean cuts, or large arrays), recomputing the geometry on every single slider tick or keystroke can be expensive.
+
+The Parameters panel header includes two controls for managing model recomputation:
+
+- **Auto-Refresh Toggle Icon:** Pauses or resumes automatic re-evaluation.
+  - When **ON** (default), modifying any parameter immediately updates the 3D preview.
+  - When **OFF**, you can freely adjust multiple sliders, dropdowns, steppers, and toggles without triggering expensive geometry kernel runs. The underlying source code in the editor is still updated live.
+- **Refresh Now Icon:** When auto-refresh is paused, an on-demand refresh icon appears next to the toggle button.
+  - If parameter changes are pending, the icon is highlighted with a dot indicator.
+  - Clicking the icon immediately re-evaluates and meshes the 3D model with all accumulated parameter values at once.
+  - Toggling auto-refresh back **ON** also immediately refreshes any pending changes.
+
+---
+
+## 5. Complete Example
 
 ```ts
 import { cylinder, cut, chamfer, edgeFinder, unwrap } from 'brepjs/quick';
