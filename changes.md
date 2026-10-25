@@ -14,8 +14,9 @@ This document tracks the user-facing features, build/deployment changes, and com
 - **Automatic Orientation:** Automatically aligns coordinate axes so models paste seamlessly without needing manual rotation.
 - **Reliable Sharing:** Works across desktop, mobile, and command palettes, with fallbacks for large models.
 
-### 2. Drag-and-Drop File Loading
+### 2. File Loading (Browse & Drag-and-Drop)
 
+- **Browse & Open:** Added a **Load** button along with the Save button to browse and pick supported script files (`.ts`, `.js`, etc.) using your system's native file dialog (or file picker fallback).
 - **Drag and Drop:** Easily open local model files by dragging and dropping them straight onto the code editor.
 - **Instant Preview:** Automatically loads and generates the 3D model immediately while preserving your undo/redo history.
 - **Visual Feedback:** Highlights the drop zone when you drag a file over the screen.
@@ -41,8 +42,8 @@ This document tracks the user-facing features, build/deployment changes, and com
 - **Automatic Controls:** Automatically detects configurable values and comment annotations (such as OpenSCAD ranges and option lists) from the model to build user-friendly controls.
 - **Pause & On-Demand Refresh:** Pause live 3D recomputation while tweaking multiple dimensions, then update the model on demand with a single click. When editing property inputs with auto-refresh paused, pressing `Tab` exits without recomputing, while pressing `Enter` commits the value and immediately refreshes the model.
 - **Smart Error Highlighting & Alerts:** Highlights problematic inputs in red with an `Invalid` badge while preserving property descriptions. Instead of abruptly forcing open the code window during 3D customization, the `Show Code` button lights up red with an alert badge to notify you; clicking it opens the editor and immediately scrolls to and highlights the parameter definition line.
-- **Roomier Parameters Header:** Expanded the parameters panel width and ensured the error badge never wraps into multiple lines even when all controls (`Save`, `Reset`, auto-refresh, and count) are active simultaneously.
-- **Save & Reset Links:** Added clear `Save` and `Reset` text links in the header of the parameters panel whenever any property or code has been modified. Clicking `Save` opens the native save dialog to download/save your customized script.
+- **Roomier Parameters Header:** Expanded the parameters panel width and ensured the error badge never wraps into multiple lines even when all controls (`Reset`, auto-refresh, and count) are active simultaneously.
+- **Reset Link:** Added a clear `Reset` text link in the header of the parameters panel whenever any parameter value has been modified from its original default.
 - **Smooth In-Place Geometry Updates:** Eliminated canvas blanking and hard blinks during recomputation by keeping the current 3D mesh rendered until the new geometry is ready, swapping it seamlessly in-place.
 - **Focus Mode by Default (Full-Screen 3D):** The code editor panel is now collapsed by default on startup, presenting the 3D viewer and customizer full-screen with the parametric LEGO brick as the default model. Clicking `Show Code` smoothly expands the editor to 50% split view.
 

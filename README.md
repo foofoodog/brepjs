@@ -26,7 +26,7 @@ CAD modeling for JavaScript.
 >
 > - **Layerling (`LYL`) Clipboard Export:** Copy any rendered 3D model directly to the clipboard in Layerling's custom-mesh JSON format (`Ctrl+V` into Layerling).
 > - **Drag-and-Drop Script Loading:** Drag `.ts` or `.js` files from your computer straight into the Monaco editor to load and run them.
-> - **Save Code to Disk:** Floating **Save** button in the editor (and in the **Parameters** panel when parameters are modified) using the native OS _Save As_ dialog (`showSaveFilePicker`) with a prompt/download fallback.
+> - **Load and Save Code:** Floating **Load** and **Save** buttons in the editor using native OS file pickers (`showOpenFilePicker` / `showSaveFilePicker`) with prompt and file-browser fallbacks to open and save supported script files (`.ts`, `.js`).
 > - **Downloadable Examples Archive:** One-click **Download .zip** button in the Examples gallery containing all standalone `.ts` and `.js` example scripts.
 > - **Interactive Parameters / Customizer Panel:** Live viewport **Parameters** panel that automatically extracts editable arguments and constants from scripts and supports TypeScript union types and OpenSCAD Customizer comment annotations (`[min:step:max]`, dropdowns, toggles, `/* [Section] */`), with auto-refresh pause/resume and on-demand refresh to batch parameter tweaks before re-evaluating expensive models. See **[Customizer & Parameters Guide](https://github.com/foofoodog/brepjs/blob/main/docs/customizer-parameters.md)**.
 

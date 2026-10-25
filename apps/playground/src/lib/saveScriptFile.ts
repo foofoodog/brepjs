@@ -3,6 +3,16 @@ import { useToastStore } from '../stores/toastStore';
 
 export const SCRIPT_FILE_RE = /\.(?:m|c)?[jt]sx?$/i;
 
+export function isSupportedScriptFile(file: { name: string; type?: string }): boolean {
+  if (SCRIPT_FILE_RE.test(file.name)) return true;
+  return (
+    file.type === 'text/javascript' ||
+    file.type === 'application/javascript' ||
+    file.type === 'application/x-javascript' ||
+    file.type === 'text/typescript'
+  );
+}
+
 interface SaveFilePickerOptions {
   suggestedName?: string;
   types?: {

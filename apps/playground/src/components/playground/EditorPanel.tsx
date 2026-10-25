@@ -5,21 +5,12 @@ import { usePlaygroundStore } from '../../stores/playgroundStore';
 import { useToastStore } from '../../stores/toastStore';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { setupMonaco } from '../../lib/monacoSetup';
-import { SCRIPT_FILE_RE, saveScriptFile } from '../../lib/saveScriptFile';
+import { isSupportedScriptFile, saveScriptFile } from '../../lib/saveScriptFile';
+import { loadScriptFile } from '../../lib/loadScriptFile';
 import { extractScriptParams, offsetToPosition, type ScriptParam } from '../../lib/scriptParams';
 
 function hasDraggedFiles(e: DragEvent<HTMLElement>): boolean {
   return Array.from(e.dataTransfer.types).includes('Files');
-}
-
-function isSupportedScriptFile(file: File): boolean {
-  if (SCRIPT_FILE_RE.test(file.name)) return true;
-  return (
-    file.type === 'text/javascript' ||
-    file.type === 'application/javascript' ||
-    file.type === 'application/x-javascript' ||
-    file.type === 'text/typescript'
-  );
 }
 
 interface EditorPanelProps {
@@ -356,26 +347,9 @@ export default function EditorPanel({
       const file = e.dataTransfer.files[0];
       if (!file) return;
 
-      if (!isSupportedScriptFile(file)) {
-        addToast('Unsupported file — drop a .js or .ts file');
-        return;
-      }
-
-      void file
-        .text()
-        .then((content) => {
-          if (window.location.pathname !== import.meta.env.BASE_URL) {
-            history.replaceState(null, '', import.meta.env.BASE_URL);
-          }
-          setFileName(file.name);
-          setCode(content);
-          addToast(`Loaded ${file.name}`);
-        })
-        .catch(() => {
-          addToast(`Failed to read ${file.name}`);
-        });
+      void loadScriptFile(file);
     },
-    [setCode, setFileName, addToast]
+    []
   );
 
   return (
@@ -413,6 +387,27 @@ export default function EditorPanel({
         }}
       />
       <div className="pointer-events-none absolute right-4 top-3 z-10 flex items-center gap-1 rounded-lg border border-white/10 bg-[#1a1d21]/75 p-1 backdrop-blur-sm">
+        <button
+          type="button"
+          onClick={() => {
+            void loadScriptFile();
+          }}
+          title="Load script file"
+          aria-label="Load script file"
+          className="pointer-events-auto flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-white/10 hover:text-white"
+        >
+          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" aria-hidden="true">
+            <path
+              d="M8 10V2m0 0L5 5m3-3l3 3M3 12.5h10"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              fill="none"
+            />
+          </svg>
+          <span>Load</span>
+        </button>
         <button
           type="button"
           onClick={() => {

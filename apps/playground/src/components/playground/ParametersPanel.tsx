@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlaygroundStore } from '../../stores/playgroundStore';
-import { saveScriptFile } from '../../lib/saveScriptFile';
-import { DEFAULT_CODE } from '../../lib/constants';
 import {
   extractScriptParams,
   updateScriptParam,
@@ -568,7 +566,6 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
     defaultsRef.current.get(p.name) ?? p.value;
 
   const modifiedParams = params.filter((p) => p.value !== getDefaultValue(p));
-  const isModified = modifiedParams.length > 0 || code !== DEFAULT_CODE;
 
   const sections = useMemo(() => {
     const hasCustomSections = params.some((p) => Boolean(p.section));
@@ -712,19 +709,6 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
           )}
         </button>
         <div className="flex shrink-0 items-center gap-1.5">
-          {isModified && (
-            <button
-              type="button"
-              onClick={() => {
-                void saveScriptFile();
-              }}
-              className="text-[11px] font-medium text-teal-light underline underline-offset-2 transition-colors hover:text-white"
-              title={`Save ${fileName} to disk`}
-              aria-label={`Save ${fileName}`}
-            >
-              Save
-            </button>
-          )}
           {modifiedParams.length > 0 && (
             <button
               type="button"

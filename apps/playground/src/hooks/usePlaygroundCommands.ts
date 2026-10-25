@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { usePlaygroundStore } from '../stores/playgroundStore';
 import { useViewerStore } from '../stores/viewerStore';
 import { SHORTCUTS, formatShortcut } from '../lib/shortcuts';
+import { saveScriptFile } from '../lib/saveScriptFile';
+import { loadScriptFile } from '../lib/loadScriptFile';
 import type { Command } from '../components/playground/CommandPalette';
 import type { PlaygroundActions } from './usePlaygroundActions';
 import type { PlaygroundPanels } from './usePlaygroundPanels';
@@ -72,6 +74,22 @@ export function usePlaygroundCommands({
         label: 'Format code',
         keys: formatShortcut(SHORTCUTS.formatCode),
         run: onFormat,
+      },
+      {
+        id: 'loadScript',
+        group: 'File',
+        label: 'Load script...',
+        run: () => {
+          void loadScriptFile();
+        },
+      },
+      {
+        id: 'saveScript',
+        group: 'File',
+        label: 'Save script to disk',
+        run: () => {
+          void saveScriptFile();
+        },
       },
       {
         id: 'toggleConsole',
