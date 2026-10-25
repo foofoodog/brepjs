@@ -1,8 +1,6 @@
 /**
  * Generates `dist/examples.zip` containing standalone `.ts` and `.js` scripts
- * for the default model and every playground example organized by category:
- *   examples/stud-brick.ts
- *   examples/stud-brick.js
+ * for every playground example organized by category:
  *   examples/<category>/<id>.ts
  *   examples/<category>/<id>.js
  */
@@ -12,7 +10,6 @@ import { fileURLToPath } from 'node:url';
 import { crc32, deflateRawSync } from 'node:zlib';
 import { transform } from 'sucrase';
 import { CATEGORIES } from '../src/lib/examples/index.js';
-import { DEFAULT_CODE } from '../src/lib/constants.js';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const defaultOut = resolve(scriptDir, '../dist/examples.zip');
@@ -97,10 +94,7 @@ function buildZip(entries: ZipEntry[]): Buffer {
   return Buffer.concat([...localParts, centralDir, eocd]);
 }
 
-const entries: ZipEntry[] = [
-  { name: 'examples/stud-brick.ts', data: Buffer.from(DEFAULT_CODE, 'utf8') },
-  { name: 'examples/stud-brick.js', data: Buffer.from(toJs(DEFAULT_CODE), 'utf8') },
-];
+const entries: ZipEntry[] = [];
 
 for (const category of CATEGORIES) {
   for (const ex of category.examples) {
