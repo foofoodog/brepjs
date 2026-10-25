@@ -20,6 +20,10 @@ export interface ScriptParam {
   valueStart: number;
   /** End index (exclusive) of the value literal in `code` */
   valueEnd: number;
+  /** Start index of the parameter declaration in the function signature (if different from valueStart) */
+  declStart?: number;
+  /** End index of the parameter declaration in the function signature */
+  declEnd?: number;
   /** Optional human-readable description from trailing or preceding comment */
   description?: string;
   /** Optional minimum value (from OpenSCAD `// [min:max]` or `// [min:step:max]`) */
@@ -609,7 +613,9 @@ function buildScriptParam(
   typeAnnotation?: string,
   trailingComment?: string,
   precedingComment?: string,
-  section?: string
+  section?: string,
+  declStart?: number,
+  declEnd?: number
 ): ScriptParam | null {
   if (section && /^hidden$/i.test(section)) {
     return null;
@@ -635,6 +641,8 @@ function buildScriptParam(
     raw,
     valueStart,
     valueEnd,
+    declStart,
+    declEnd,
     description: meta.description,
     min: meta.min,
     max: meta.max,
@@ -727,7 +735,9 @@ export function extractScriptParams(code: string): ScriptParam[] {
                   def.typeAnnotation ?? propTypes.get(def.name),
                   def.trailingComment,
                   def.precedingComment,
-                  section
+                  section,
+                  def.nameIndex,
+                  def.nameIndex + def.name.length
                 );
                 if (param) {
                   params.push(param);
@@ -761,7 +771,9 @@ export function extractScriptParams(code: string): ScriptParam[] {
                 def.typeAnnotation,
                 def.trailingComment,
                 def.precedingComment,
-                section
+                section,
+                def.nameIndex,
+                def.nameIndex + def.name.length
               );
               if (param) {
                 params.push(param);
@@ -786,7 +798,9 @@ export function extractScriptParams(code: string): ScriptParam[] {
                 def.typeAnnotation,
                 def.trailingComment,
                 def.precedingComment,
-                section
+                section,
+                def.nameIndex,
+                def.nameIndex + def.name.length
               );
               if (param) {
                 params.push(param);
@@ -879,4 +893,24 @@ export function updateScriptParam(
     formatted = Number.isFinite(num) ? String(num) : param.raw;
   }
   return code.slice(0, param.valueStart) + formatted + code.slice(param.valueEnd);
+}
+
+/**
+ * Convert a character offset into a 1-based { lineNumber, column } position.
+ */
+export function offsetToPosition(
+  code: string,
+  offset: number
+): { lineNumber: number; column: number } {
+  const target = Math.min(Math.max(offset, 0), code.length);
+  let lineNumber = 1;
+  let lastLineBreak = -1;
+  for (let i = 0; i < target; i++) {
+    if (code.charCodeAt(i) === 10 /* '\n' */) {
+      lineNumber++;
+      lastLineBreak = i;
+    }
+  }
+  const column = target - lastLineBreak; // 1-based column
+  return { lineNumber, column };
 }

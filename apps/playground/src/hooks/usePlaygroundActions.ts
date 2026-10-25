@@ -55,10 +55,11 @@ export function usePlaygroundActions(): PlaygroundActions {
   );
 
   const handleRun = useCallback(() => {
-    runCode(code);
+    const currentCode = usePlaygroundStore.getState().code;
+    runCode(currentCode);
     track('playground_run');
     captureEvent('playground_run');
-  }, [runCode, code]);
+  }, [runCode]);
 
   const handleExportSTL = useCallback(() => {
     exportSTL(code);

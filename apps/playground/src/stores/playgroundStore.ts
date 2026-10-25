@@ -40,6 +40,9 @@ interface PlaygroundState {
   isConsoleCollapsed: boolean;
   isViewerCollapsed: boolean;
   isEditorCollapsed: boolean;
+  wasEditorCollapsedBeforeError: boolean;
+  resetInitiatedOnError: boolean;
+  lastCommittedParamKey: string | null;
   lastSuccessfulCode: string | null;
   autoRefresh: boolean;
   runRequestSeq: number;
@@ -70,6 +73,9 @@ interface PlaygroundState {
   setConsoleCollapsed: (collapsed: boolean) => void;
   setViewerCollapsed: (collapsed: boolean) => void;
   setEditorCollapsed: (collapsed: boolean) => void;
+  setWasEditorCollapsedBeforeError: (wasCollapsed: boolean) => void;
+  setResetInitiatedOnError: (resetInitiated: boolean) => void;
+  setLastCommittedParamKey: (key: string | null) => void;
   setLastSuccessfulCode: (code: string) => void;
   setAutoRefresh: (autoRefresh: boolean) => void;
   toggleAutoRefresh: () => void;
@@ -105,7 +111,10 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   flatPattern: null,
   isConsoleCollapsed: true,
   isViewerCollapsed: false,
-  isEditorCollapsed: false,
+  isEditorCollapsed: true,
+  wasEditorCollapsedBeforeError: false,
+  resetInitiatedOnError: false,
+  lastCommittedParamKey: null,
   lastSuccessfulCode: null,
   autoRefresh: true,
   runRequestSeq: 0,
@@ -138,6 +147,12 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   setConsoleCollapsed: (isConsoleCollapsed) => set({ isConsoleCollapsed }),
   setViewerCollapsed: (isViewerCollapsed) => set({ isViewerCollapsed }),
   setEditorCollapsed: (isEditorCollapsed) => set({ isEditorCollapsed }),
+  setWasEditorCollapsedBeforeError: (wasEditorCollapsedBeforeError) =>
+    set({ wasEditorCollapsedBeforeError }),
+  setResetInitiatedOnError: (resetInitiatedOnError) =>
+    set({ resetInitiatedOnError }),
+  setLastCommittedParamKey: (lastCommittedParamKey) =>
+    set({ lastCommittedParamKey }),
   setLastSuccessfulCode: (lastSuccessfulCode) => set({ lastSuccessfulCode }),
   setAutoRefresh: (autoRefresh) => set({ autoRefresh }),
   toggleAutoRefresh: () => set((s) => ({ autoRefresh: !s.autoRefresh })),

@@ -81,4 +81,90 @@ export default studBrick(2, 4, 0);
 
     expect(changedKeys).toEqual(['plateUnits']);
   });
+
+  it('records declStart and declEnd for function signature parameters', async () => {
+    const { extractScriptParams } = await import('../apps/playground/src/lib/scriptParams.js');
+    const code = `
+function studBrick(studsX: number, studsY: number, plateUnits: number) {}
+export default studBrick(2, 4, 3);
+`;
+    const params = extractScriptParams(code);
+    const plateUnitsParam = params.find((p) => p.name === 'plateUnits');
+    expect(plateUnitsParam).toBeDefined();
+    expect(plateUnitsParam?.declStart).toBeDefined();
+    expect(plateUnitsParam?.declEnd).toBeDefined();
+    const start = plateUnitsParam?.declStart ?? 0;
+    const end = plateUnitsParam?.declEnd ?? 0;
+    expect(code.slice(start, end)).toBe('plateUnits');
+  });
+
+  it('tracks wasEditorCollapsedBeforeError and resetInitiatedOnError flags', () => {
+    expect(usePlaygroundStore.getState().wasEditorCollapsedBeforeError).toBe(false);
+    expect(usePlaygroundStore.getState().resetInitiatedOnError).toBe(false);
+
+    usePlaygroundStore.getState().setWasEditorCollapsedBeforeError(true);
+    expect(usePlaygroundStore.getState().wasEditorCollapsedBeforeError).toBe(true);
+
+    usePlaygroundStore.getState().setResetInitiatedOnError(true);
+    expect(usePlaygroundStore.getState().resetInitiatedOnError).toBe(true);
+
+    usePlaygroundStore.getState().setWasEditorCollapsedBeforeError(false);
+    usePlaygroundStore.getState().setResetInitiatedOnError(false);
+    expect(usePlaygroundStore.getState().wasEditorCollapsedBeforeError).toBe(false);
+    expect(usePlaygroundStore.getState().resetInitiatedOnError).toBe(false);
+  });
+
+  it('tracks isEditorCollapsed in playgroundStore and defaults to true', () => {
+    expect(usePlaygroundStore.getState().isEditorCollapsed).toBe(true);
+    usePlaygroundStore.getState().setEditorCollapsed(false);
+    expect(usePlaygroundStore.getState().isEditorCollapsed).toBe(false);
+    usePlaygroundStore.getState().setEditorCollapsed(true);
+    expect(usePlaygroundStore.getState().isEditorCollapsed).toBe(true);
+  });
+
+  it('marks resetInitiatedOnError when recovering from an error', () => {
+    usePlaygroundStore.setState({ error: 'Kernel failed', wasEditorCollapsedBeforeError: true });
+    usePlaygroundStore.getState().setResetInitiatedOnError(true);
+    expect(usePlaygroundStore.getState().resetInitiatedOnError).toBe(true);
+
+    // Simulated error resolution
+    usePlaygroundStore.setState({ error: null });
+    expect(usePlaygroundStore.getState().error).toBe(null);
+  });
+
+  it('converts character offsets to line and column accurately', async () => {
+    const { offsetToPosition } = await import('../apps/playground/src/lib/scriptParams.js');
+    const snippet = 'const a = 1;\nconst b = 2;\nconst c = 3;';
+    expect(offsetToPosition(snippet, 0)).toEqual({ lineNumber: 1, column: 1 });
+    // Offset at 'b' (index 19: 'const a = 1;\nconst ' -> 13 + 6 = 19)
+    expect(offsetToPosition(snippet, 19)).toEqual({ lineNumber: 2, column: 7 });
+  });
+
+  it('tracks lastCommittedParamKey in playgroundStore', () => {
+    expect(usePlaygroundStore.getState().lastCommittedParamKey).toBe(null);
+    usePlaygroundStore.getState().setLastCommittedParamKey('plateUnits');
+    expect(usePlaygroundStore.getState().lastCommittedParamKey).toBe('plateUnits');
+    usePlaygroundStore.getState().setLastCommittedParamKey(null);
+    expect(usePlaygroundStore.getState().lastCommittedParamKey).toBe(null);
+  });
+
+  it('suppresses execution when autoRefresh is false, but triggers on explicit refresh request', () => {
+    usePlaygroundStore.setState({ autoRefresh: false, runRequestSeq: 0 });
+    let runCount = 0;
+    const unsubscribe = usePlaygroundStore.subscribe((state, prev) => {
+      if (state.runRequestSeq !== prev.runRequestSeq) {
+        runCount++;
+      }
+    });
+
+    // Simulated blur/tab exit with autoRefresh off: code is updated but runRequestSeq is NOT incremented
+    usePlaygroundStore.getState().setCode('export default studBrick(2, 4, 2);');
+    expect(runCount).toBe(0);
+
+    // Simulated Enter key press: triggers explicit refresh request
+    usePlaygroundStore.getState().requestRun();
+    expect(runCount).toBe(1);
+
+    unsubscribe();
+  });
 });

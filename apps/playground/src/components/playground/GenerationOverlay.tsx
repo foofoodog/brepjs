@@ -1,14 +1,28 @@
+import { useEffect, useState } from 'react';
 import { usePlaygroundStore } from '../../stores/playgroundStore';
 
 /**
- * Elegant generation indicator shown over the 3D viewer while geometry
- * recomputes (the `isRunning` window). The previous part stays faintly visible
- * behind a light scrim; a teal wireframe cube whose edges "march" conveys that
- * geometry is being built, softening the perceived wait. Non-interactive.
+ * Elegant generation indicator shown over the 3D viewer when geometry
+ * recomputation takes noticeable time (>180ms). Fast parameter updates swap
+ * seamlessly without flashing this scrim, preventing jarring blinks.
  */
 export default function GenerationOverlay() {
   const isRunning = usePlaygroundStore((s) => s.isRunning);
-  if (!isRunning) return null;
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!isRunning) {
+      setVisible(false);
+      return;
+    }
+    // Delay showing overlay to avoid flicker on sub-200ms updates
+    const timer = setTimeout(() => {
+      setVisible(true);
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [isRunning]);
+
+  if (!visible) return null;
 
   return (
     <div

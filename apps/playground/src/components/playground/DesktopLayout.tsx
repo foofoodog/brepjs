@@ -29,7 +29,7 @@ export default function DesktopLayout({
   const isConsoleCollapsed = usePlaygroundStore((s) => s.isConsoleCollapsed);
   const isViewerCollapsed = usePlaygroundStore((s) => s.isViewerCollapsed);
   const storage = typeof window !== 'undefined' ? localStorage : undefined;
-  const hLayout = useDefaultLayout({ id: 'playground-h', storage });
+  const hLayout = useDefaultLayout({ id: 'playground-h-v3', storage });
   const vLayout = useDefaultLayout({ id: 'playground-v', storage });
 
   return (
@@ -46,7 +46,7 @@ export default function DesktopLayout({
         collapsible
         collapsedSize="0%"
         minSize="20%"
-        defaultSize="50%"
+        defaultSize="0%"
         onResize={panels.handleEditorAreaResize}
       >
         {/* Always-mounted: collapsing this Panel sends its width to 0% but
@@ -94,7 +94,7 @@ export default function DesktopLayout({
         collapsible
         collapsedSize="0%"
         minSize="20%"
-        defaultSize="50%"
+        defaultSize="100%"
         onResize={panels.handleViewerResize}
       >
         {isViewerCollapsed ? null : (

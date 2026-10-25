@@ -50,10 +50,8 @@ export function useCodeExecution() {
     const store = usePlaygroundStore.getState();
     store.setIsRunning(true);
     store.setError(null);
-    // Clear meshes the moment a new run starts so a failed eval can't render
-    // stale geometry under the error banner (and the seeded hero mesh is
-    // dropped on the user's first real run).
-    store.setMeshes([]);
+    // Keep current meshes while recomputing to avoid hard blink / canvas blanking.
+    // Geometry is seamlessly swapped in-place when eval-result arrives.
     store.setAvailableArtifacts([]);
     store.setBimTree(null);
     store.setFlatPattern(null);

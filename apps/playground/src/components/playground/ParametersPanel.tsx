@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePlaygroundStore } from '../../stores/playgroundStore';
 import { saveScriptFile } from '../../lib/saveScriptFile';
+import { DEFAULT_CODE } from '../../lib/constants';
 import {
   extractScriptParams,
   updateScriptParam,
@@ -122,14 +123,17 @@ function ParamRow({
   isInvalid,
   errorMessage,
   onCommit,
+  onRefresh,
 }: {
   param: ScriptParam;
   defaultValue: ScriptParamValue;
   isInvalid?: boolean;
   errorMessage?: string | null;
   onCommit: (param: ScriptParam, nextValue: ScriptParamValue) => void;
+  onRefresh?: () => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const draftRef = useRef<string | null>(null);
   const [pendingStepValue, setPendingStepValue] = useState<number | null>(null);
   const stepTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const paramRef = useRef(param);
@@ -155,6 +159,8 @@ function ParamRow({
   useEffect(() => {
     clearStepTimer();
     setPendingStepValue(null);
+    draftRef.current = null;
+    setDraft(null);
   }, [param.value]);
 
   const effectiveValue: ScriptParamValue = pendingStepValue ?? param.value;
@@ -173,6 +179,7 @@ function ParamRow({
 
   const scheduleStepCommit = (next: number) => {
     clearStepTimer();
+    draftRef.current = null;
     setDraft(null);
     if (next === param.value) {
       setPendingStepValue(null);
@@ -189,19 +196,20 @@ function ParamRow({
   };
 
   const commitDraft = () => {
-    if (draft === null) return;
+    const currentDraft = draftRef.current ?? draft;
+    if (currentDraft === null) return;
     clearStepTimer();
     setPendingStepValue(null);
+    draftRef.current = null;
+    setDraft(null);
     if (param.type === 'string') {
-      const next = draft;
-      setDraft(null);
+      const next = currentDraft;
       if (next !== param.value) {
         onCommit(param, next);
       }
       return;
     }
-    const parsed = Number(draft.trim());
-    setDraft(null);
+    const parsed = Number(currentDraft.trim());
     if (Number.isFinite(parsed)) {
       const clamped = clampToParamBounds(param, parsed);
       if (clamped !== param.value) {
@@ -256,6 +264,9 @@ function ParamRow({
                 setPendingStepValue(null);
                 setDraft(null);
                 if (param.value !== defaultValue) {
+                  if (usePlaygroundStore.getState().error) {
+                    usePlaygroundStore.getState().setResetInitiatedOnError(true);
+                  }
                   onCommit(param, defaultValue);
                 }
               }}
@@ -282,6 +293,11 @@ function ParamRow({
                 onCommit(param, selected.value);
               }
             }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onRefresh?.();
+              }
+            }}
             className={`max-w-[140px] rounded border px-1.5 py-0.5 font-mono text-xs focus:outline-none ${
               isRowInvalid
                 ? 'border-red-500 bg-red-950/40 text-red-200 ring-1 ring-red-500/50 focus:border-red-400'
@@ -302,6 +318,11 @@ function ParamRow({
             aria-checked={Boolean(param.value)}
             onClick={() => {
               onCommit(param, !param.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onRefresh?.();
+              }
             }}
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition-colors ${
               isRowInvalid
@@ -327,13 +348,18 @@ function ParamRow({
             type="text"
             value={displayed}
             onChange={(e) => {
+              draftRef.current = e.target.value;
               setDraft(e.target.value);
             }}
             onBlur={commitDraft}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
+                e.preventDefault();
+                commitDraft();
+                onRefresh?.();
                 e.currentTarget.blur();
               } else if (e.key === 'Escape') {
+                draftRef.current = null;
                 setDraft(null);
                 e.currentTarget.blur();
               }
@@ -375,13 +401,18 @@ function ParamRow({
               onChange={(e) => {
                 clearStepTimer();
                 setPendingStepValue(null);
+                draftRef.current = e.target.value;
                 setDraft(e.target.value);
               }}
               onBlur={commitDraft}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitDraft();
+                  onRefresh?.();
                   e.currentTarget.blur();
                 } else if (e.key === 'Escape') {
+                  draftRef.current = null;
                   setDraft(null);
                   e.currentTarget.blur();
                 }
@@ -429,8 +460,14 @@ function ParamRow({
               if (Number.isFinite(next) && next !== effectiveValue) {
                 clearStepTimer();
                 setPendingStepValue(null);
+                draftRef.current = null;
                 setDraft(null);
                 onCommit(param, next);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onRefresh?.();
               }
             }}
             className={`h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-700 ${
@@ -442,18 +479,26 @@ function ParamRow({
         </div>
       )}
 
-      {isInvalid || isDraftInvalid ? (
-        <div
-          className="truncate font-mono text-[9.5px] font-medium text-red-400"
-          title={errorMessage ?? (isDraftInvalid ? 'Invalid number format' : 'Invalid')}
-        >
-          Invalid
+      {(isRowInvalid || param.description) && (
+        <div className="flex min-w-0 items-center gap-1.5 pt-0.5">
+          {isRowInvalid && (
+            <span
+              className="shrink-0 font-mono text-[9.5px] font-semibold text-red-400"
+              title={errorMessage ?? (isDraftInvalid ? 'Invalid number format' : 'Invalid')}
+            >
+              Invalid
+            </span>
+          )}
+          {param.description && (
+            <span
+              className="truncate text-[10px] text-gray-500"
+              title={param.description}
+            >
+              {isRowInvalid ? `— ${param.description}` : param.description}
+            </span>
+          )}
         </div>
-      ) : param.description ? (
-        <div className="truncate text-[10px] text-gray-500" title={param.description}>
-          {param.description}
-        </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -478,6 +523,7 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
     if (!error) {
       setModifiedSinceSuccess(new Set());
       setLastCommittedKey(null);
+      usePlaygroundStore.getState().setLastCommittedParamKey(null);
     }
   }, [error]);
 
@@ -522,6 +568,7 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
     defaultsRef.current.get(p.name) ?? p.value;
 
   const modifiedParams = params.filter((p) => p.value !== getDefaultValue(p));
+  const isModified = modifiedParams.length > 0 || code !== DEFAULT_CODE;
 
   const sections = useMemo(() => {
     const hasCustomSections = params.some((p) => Boolean(p.section));
@@ -608,6 +655,7 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
 
   const handleCommit = (param: ScriptParam, nextValue: ScriptParamValue) => {
     setLastCommittedKey(param.key);
+    usePlaygroundStore.getState().setLastCommittedParamKey(param.key);
     setModifiedSinceSuccess((prev) => {
       const next = new Set(prev);
       next.add(param.key);
@@ -619,11 +667,17 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
     if (!defaultsRef.current.has(targetParam.name)) {
       defaultsRef.current.set(targetParam.name, targetParam.value);
     }
+    if (usePlaygroundStore.getState().error) {
+      usePlaygroundStore.getState().setResetInitiatedOnError(true);
+    }
     applyCodeUpdate(updateScriptParam(latestCode, targetParam, nextValue));
   };
 
   const handleResetAll = () => {
     if (modifiedParams.length === 0) return;
+    if (usePlaygroundStore.getState().error) {
+      usePlaygroundStore.getState().setResetInitiatedOnError(true);
+    }
     // Apply replacements from end of file to start so earlier character spans remain valid
     const sorted = [...modifiedParams].sort((a, b) => b.valueStart - a.valueStart);
     let nextCode = code;
@@ -635,7 +689,7 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
   };
 
   return (
-    <div className="pointer-events-auto flex max-h-full min-h-0 w-72 sm:w-80 flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface/95 shadow-xl backdrop-blur">
+    <div className="pointer-events-auto flex max-h-full min-h-0 w-80 sm:w-96 flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface/95 shadow-xl backdrop-blur">
       <div className="flex shrink-0 items-center justify-between gap-1.5 border-b border-border-subtle px-3 py-2">
         <button
           type="button"
@@ -650,39 +704,37 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
           <span className="truncate">Parameters</span>
           {invalidParamKeys.size > 0 && (
             <span
-              className="flex h-3.5 items-center rounded bg-red-500/20 px-1 font-mono text-[9px] font-semibold text-red-400 ring-1 ring-red-500/40"
-              title={`${invalidParamKeys.size} parameter${invalidParamKeys.size === 1 ? '' : 's'} caused a processing error`}
+              className="flex h-3.5 shrink-0 whitespace-nowrap items-center rounded bg-red-500/20 px-1.5 font-mono text-[9px] font-semibold text-red-400 ring-1 ring-red-500/40"
+              title={`${invalidParamKeys.size} parameter${invalidParamKeys.size === 1 ? '' : 's'} caused a processing error${error ? `: ${error}` : ''}`}
             >
               {invalidParamKeys.size} error{invalidParamKeys.size === 1 ? '' : 's'}
             </span>
           )}
         </button>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1.5">
+          {isModified && (
+            <button
+              type="button"
+              onClick={() => {
+                void saveScriptFile();
+              }}
+              className="text-[11px] font-medium text-teal-light underline underline-offset-2 transition-colors hover:text-white"
+              title={`Save ${fileName} to disk`}
+              aria-label={`Save ${fileName}`}
+            >
+              Save
+            </button>
+          )}
           {modifiedParams.length > 0 && (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  void saveScriptFile();
-                }}
-                className="flex h-4 items-center gap-0.5 rounded px-1 text-[10px] font-medium text-teal-light transition-colors hover:bg-teal-primary/20"
-                title={`Save ${fileName}`}
-                aria-label={`Save ${fileName}`}
-              >
-                <SaveIcon className="h-2.5 w-2.5" />
-                <span>Save</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleResetAll}
-                className="flex h-4 items-center gap-0.5 rounded px-1 text-[10px] font-medium text-teal-light transition-colors hover:bg-teal-primary/20"
-                title={`Reset ${modifiedParams.length} modified parameter${modifiedParams.length === 1 ? '' : 's'} to defaults`}
-                aria-label="Reset all parameters to defaults"
-              >
-                <RevertIcon className="h-2.5 w-2.5" />
-                <span>Reset</span>
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={handleResetAll}
+              className="text-[11px] font-medium text-gray-400 underline underline-offset-2 transition-colors hover:text-gray-200"
+              title={`Reset ${modifiedParams.length} modified parameter${modifiedParams.length === 1 ? '' : 's'} to defaults`}
+              aria-label="Reset all parameters to defaults"
+            >
+              Reset
+            </button>
           )}
 
           {/* Auto-refresh toggle */}
@@ -804,6 +856,7 @@ const tag: string = 'ISO';
                   isInvalid={invalidParamKeys.has(p.key)}
                   errorMessage={invalidParamKeys.has(p.key) ? error : null}
                   onCommit={handleCommit}
+                  onRefresh={handleRefresh}
                 />
               ))}
             </div>

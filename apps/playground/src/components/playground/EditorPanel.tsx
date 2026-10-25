@@ -6,6 +6,7 @@ import { useToastStore } from '../../stores/toastStore';
 import { useIsMobile } from '../../hooks/useIsMobile';
 import { setupMonaco } from '../../lib/monacoSetup';
 import { SCRIPT_FILE_RE, saveScriptFile } from '../../lib/saveScriptFile';
+import { extractScriptParams, offsetToPosition, type ScriptParam } from '../../lib/scriptParams';
 
 function hasDraggedFiles(e: DragEvent<HTMLElement>): boolean {
   return Array.from(e.dataTransfer.types).includes('Files');
@@ -40,12 +41,16 @@ export default function EditorPanel({
   const setFileName = usePlaygroundStore((s) => s.setFileName);
   const error = usePlaygroundStore((s) => s.error);
   const errorLine = usePlaygroundStore((s) => s.errorLine);
+  const isEditorCollapsed = usePlaygroundStore((s) => s.isEditorCollapsed);
+  const lastSuccessfulCode = usePlaygroundStore((s) => s.lastSuccessfulCode);
+  const lastCommittedParamKey = usePlaygroundStore((s) => s.lastCommittedParamKey);
   const addToast = useToastStore((s) => s.addToast);
   const isMobile = useIsMobile();
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const dragDepthRef = useRef(0);
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
+  const decorationsRef = useRef<string[]>([]);
   // Mirrors the last value we know the model holds. The sync effect and the
   // mount reconcile set it to a programmatically-pushed value before the edit;
   // genuine typing changes the model to something else. handleChange uses the
@@ -105,8 +110,13 @@ export default function EditorPanel({
       // sync effect/mount reconcile just recorded; typing differs from it.
       const isExternal = newCode === lastUserCodeRef.current;
       lastUserCodeRef.current = newCode;
-      if (!isExternal && window.location.pathname !== import.meta.env.BASE_URL) {
-        history.replaceState(null, '', import.meta.env.BASE_URL);
+      if (!isExternal) {
+        if (usePlaygroundStore.getState().resetInitiatedOnError) {
+          usePlaygroundStore.getState().setResetInitiatedOnError(false);
+        }
+        if (window.location.pathname !== import.meta.env.BASE_URL) {
+          history.replaceState(null, '', import.meta.env.BASE_URL);
+        }
       }
       setCode(newCode);
       onCodeChange(newCode, { immediate: isExternal });
@@ -141,28 +151,169 @@ export default function EditorPanel({
       const model = editor.getModel();
       if (!model) return;
 
-      if (error && errorLine) {
-        // Clamp to the current line count — a stale error line from a previous
-        // run can exceed the buffer after the user shortens the file.
-        const lineCount = model.getLineCount();
-        const line = Math.min(Math.max(errorLine, 1), lineCount);
-        monaco.editor.setModelMarkers(model, 'brepjs', [
-          {
-            severity: monaco.MarkerSeverity.Error,
-            message: error,
-            startLineNumber: line,
-            startColumn: 1,
-            endLineNumber: line,
-            endColumn: model.getLineMaxColumn(line),
-          },
-        ]);
+      if (error) {
+        // Find if a specific parameter was changed or caused the error
+        let targetParam: ScriptParam | undefined;
+        try {
+          const currentParams = extractScriptParams(code);
+          if (lastCommittedParamKey) {
+            targetParam = currentParams.find((p) => p.key === lastCommittedParamKey);
+          }
+          if (!targetParam && lastSuccessfulCode) {
+            const goodParams = extractScriptParams(lastSuccessfulCode);
+            targetParam = currentParams.find((p) => {
+              const good = goodParams.find((g) => g.name === p.name);
+              return !good || good.value !== p.value;
+            });
+          }
+          if (!targetParam) {
+            const errorLower = error.toLowerCase();
+            targetParam = currentParams.find((p) => new RegExp(`\\b${p.name}\\b`, 'i').test(errorLower));
+          }
+        } catch {
+          // ignore parsing error
+        }
+
+        if (targetParam) {
+          // If the parameter is declared in a function signature, flag it there (one level up on the callstack)
+          // as well as at the call site argument being passed.
+          const hasDecl =
+            targetParam.declStart !== undefined &&
+            targetParam.declEnd !== undefined &&
+            targetParam.declStart !== targetParam.valueStart;
+
+          const primaryStartOffset = hasDecl ? targetParam.declStart! : targetParam.valueStart;
+          const primaryEndOffset = hasDecl ? targetParam.declEnd! : targetParam.valueEnd;
+
+          const startPos = offsetToPosition(code, primaryStartOffset);
+          const endPos = offsetToPosition(code, primaryEndOffset);
+
+          const markers = [
+            {
+              severity: monaco.MarkerSeverity.Error,
+              message: `Invalid parameter '${targetParam.name}' (${targetParam.value}): ${error}`,
+              startLineNumber: startPos.lineNumber,
+              startColumn: startPos.column,
+              endLineNumber: endPos.lineNumber,
+              endColumn: endPos.column,
+            },
+          ];
+
+          const newDecorations = [
+            {
+              range: new monaco.Range(
+                startPos.lineNumber,
+                startPos.column,
+                endPos.lineNumber,
+                endPos.column
+              ),
+              options: {
+                isWholeLine: false,
+                className: 'bg-red-500/25 ring-1 ring-red-500 rounded px-0.5',
+                inlineClassName: 'text-red-300 font-bold underline decoration-red-500 underline-offset-2',
+                overviewRuler: {
+                  color: '#ef4444',
+                  position: monaco.editor.OverviewRulerLane.Full,
+                },
+                hoverMessage: { value: `**Invalid parameter \`${targetParam.name}\`**: ${error}` },
+              },
+            },
+          ];
+
+          if (hasDecl) {
+            // Also mark the call argument where the invalid value is being passed
+            const valStartPos = offsetToPosition(code, targetParam.valueStart);
+            const valEndPos = offsetToPosition(code, targetParam.valueEnd);
+            markers.push({
+              severity: monaco.MarkerSeverity.Error,
+              message: `Value (${targetParam.value}) passed for '${targetParam.name}' caused error: ${error}`,
+              startLineNumber: valStartPos.lineNumber,
+              startColumn: valStartPos.column,
+              endLineNumber: valEndPos.lineNumber,
+              endColumn: valEndPos.column,
+            });
+            newDecorations.push({
+              range: new monaco.Range(
+                valStartPos.lineNumber,
+                valStartPos.column,
+                valEndPos.lineNumber,
+                valEndPos.column
+              ),
+              options: {
+                isWholeLine: false,
+                className: 'bg-red-500/20 ring-1 ring-red-500/60 rounded px-0.5',
+                inlineClassName: 'text-red-300 underline decoration-red-500/60',
+                overviewRuler: {
+                  color: '#ef4444',
+                  position: monaco.editor.OverviewRulerLane.Full,
+                },
+                hoverMessage: { value: `**Value passed for \`${targetParam.name}\`**: ${error}` },
+              },
+            });
+          }
+
+          monaco.editor.setModelMarkers(model, 'brepjs', markers);
+          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, newDecorations);
+
+          const scrollToTarget = () => {
+            editor.revealLineInCenter(startPos.lineNumber);
+            editor.setSelection(
+              new monaco.Range(
+                startPos.lineNumber,
+                startPos.column,
+                endPos.lineNumber,
+                endPos.column
+              )
+            );
+            editor.setPosition({ lineNumber: startPos.lineNumber, column: startPos.column });
+          };
+          if (!isEditorCollapsed) {
+            scrollToTarget();
+            requestAnimationFrame(scrollToTarget);
+            setTimeout(scrollToTarget, 50);
+          }
+        } else if (errorLine) {
+          // Fallback to errorLine only if no changed variable could be identified
+          const lineCount = model.getLineCount();
+          const targetLine = Math.min(Math.max(errorLine, 1), lineCount);
+          monaco.editor.setModelMarkers(model, 'brepjs', [
+            {
+              severity: monaco.MarkerSeverity.Error,
+              message: error,
+              startLineNumber: targetLine,
+              startColumn: 1,
+              endLineNumber: targetLine,
+              endColumn: model.getLineMaxColumn(targetLine),
+            },
+          ]);
+          if (decorationsRef.current.length > 0) {
+            decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+          }
+          const scrollToErrorLine = () => {
+            editor.revealLineInCenter(targetLine);
+            editor.setPosition({ lineNumber: targetLine, column: 1 });
+          };
+          if (!isEditorCollapsed) {
+            scrollToErrorLine();
+            requestAnimationFrame(scrollToErrorLine);
+            setTimeout(scrollToErrorLine, 50);
+          }
+        } else {
+          monaco.editor.setModelMarkers(model, 'brepjs', []);
+          if (decorationsRef.current.length > 0) {
+            decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+          }
+        }
       } else {
         monaco.editor.setModelMarkers(model, 'brepjs', []);
+        if (decorationsRef.current.length > 0) {
+          decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
+        }
       }
     } catch {
       // Editor may be disposed during StrictMode remount — ignore
     }
-  }, [error, errorLine]);
+  }, [error, errorLine, code, lastSuccessfulCode, lastCommittedParamKey, isEditorCollapsed]);
 
   const handleDragEnterCapture = useCallback((e: DragEvent<HTMLDivElement>) => {
     if (!hasDraggedFiles(e)) return;
