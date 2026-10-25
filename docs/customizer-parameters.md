@@ -162,6 +162,7 @@ The Parameters panel header includes two controls for managing model recomputati
   - If parameter changes are pending, the icon is highlighted with a dot indicator.
   - Clicking the icon immediately re-evaluates and meshes the 3D model with all accumulated parameter values at once.
   - Toggling auto-refresh back **ON** also immediately refreshes any pending changes.
+- **Invalid Parameter Error Highlighting:** If a parameter value causes a processing or geometry error (such as setting `plateUnits` to `0` in a brick, producing negative box dimensions, or violating kernel constraints), the affected parameter row is highlighted in red with an `!` status badge, red-bordered inputs, an inline `Invalid` label (with full error details on hover tooltip), and a header error count. Correcting or reverting the value automatically clears the warning.
 
 ---
 

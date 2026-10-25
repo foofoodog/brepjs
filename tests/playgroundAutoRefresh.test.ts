@@ -57,4 +57,28 @@ describe('playgroundStore autoRefresh & runRequest', () => {
     usePlaygroundStore.getState().setLastSuccessfulCode('const a = 2;');
     expect(isPending(usePlaygroundStore)).toBe(false);
   });
+
+  it('identifies parameter causing error by comparing code to lastSuccessfulCode', async () => {
+    const { extractScriptParams } = await import('../apps/playground/src/lib/scriptParams.js');
+    const goodCode = `
+function studBrick(studsX: number, studsY: number, plateUnits: number) {}
+export default studBrick(2, 4, 3);
+`;
+    const badCode = `
+function studBrick(studsX: number, studsY: number, plateUnits: number) {}
+export default studBrick(2, 4, 0);
+`;
+
+    const goodParams = extractScriptParams(goodCode);
+    const badParams = extractScriptParams(badCode);
+
+    const changedKeys = badParams
+      .filter((p) => {
+        const good = goodParams.find((g) => g.name === p.name);
+        return !good || good.value !== p.value;
+      })
+      .map((p) => p.name);
+
+    expect(changedKeys).toEqual(['plateUnits']);
+  });
 });

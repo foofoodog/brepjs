@@ -119,10 +119,14 @@ const STEP_COMMIT_DELAY_MS = 350;
 function ParamRow({
   param,
   defaultValue,
+  isInvalid,
+  errorMessage,
   onCommit,
 }: {
   param: ScriptParam;
   defaultValue: ScriptParamValue;
+  isInvalid?: boolean;
+  errorMessage?: string | null;
   onCommit: (param: ScriptParam, nextValue: ScriptParamValue) => void;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -159,6 +163,13 @@ function ParamRow({
   const hasRange =
     param.type === 'number' && param.min !== undefined && param.max !== undefined;
   const isModified = effectiveValue !== defaultValue;
+
+  const isDraftInvalid =
+    param.type === 'number' &&
+    draft !== null &&
+    (draft.trim() === '' || !Number.isFinite(Number(draft.trim())));
+
+  const isRowInvalid = Boolean(isInvalid || isDraftInvalid);
 
   const scheduleStepCommit = (next: number) => {
     clearStepTimer();
@@ -200,18 +211,43 @@ function ParamRow({
   };
 
   return (
-    <div className="group flex flex-col gap-1 px-3 py-1.5 hover:bg-white/[0.03]">
+    <div
+      className={`group flex flex-col gap-1 px-3 py-1.5 transition-colors ${
+        isRowInvalid ? 'bg-red-500/10' : 'hover:bg-white/[0.03]'
+      }`}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
           <label
             htmlFor={`param-${param.key}`}
             className={`truncate font-mono text-xs font-medium ${
-              isModified ? 'text-teal-light' : 'text-gray-200'
+              isRowInvalid
+                ? 'text-red-400 font-semibold'
+                : isModified
+                  ? 'text-teal-light'
+                  : 'text-gray-200'
             }`}
-            title={param.description ? `${param.name} — ${param.description}` : param.name}
+            title={
+              isInvalid && errorMessage
+                ? `${param.name} caused error: ${errorMessage}`
+                : isDraftInvalid
+                  ? 'Invalid number'
+                  : param.description
+                    ? `${param.name} — ${param.description}`
+                    : param.name
+            }
           >
             {param.name}
           </label>
+          {isRowInvalid && (
+            <span
+              className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-red-500/20 text-[9px] font-bold text-red-400"
+              title={errorMessage ?? (isDraftInvalid ? 'Invalid number format' : 'Evaluation error')}
+              aria-label="Invalid parameter"
+            >
+              !
+            </span>
+          )}
           {isModified && (
             <button
               type="button"
@@ -223,7 +259,11 @@ function ParamRow({
                   onCommit(param, defaultValue);
                 }
               }}
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-gray-400 transition-colors hover:bg-white/10 hover:text-teal-light"
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded transition-colors ${
+                isRowInvalid
+                  ? 'text-red-400 hover:bg-red-500/20 hover:text-red-200'
+                  : 'text-gray-400 hover:bg-white/10 hover:text-teal-light'
+              }`}
               title={`Reset ${param.name} to default (${String(defaultValue)})`}
               aria-label={`Reset ${param.name} to default`}
             >
@@ -242,7 +282,11 @@ function ParamRow({
                 onCommit(param, selected.value);
               }
             }}
-            className="max-w-[140px] rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 font-mono text-xs text-teal-light focus:border-teal-primary focus:outline-none"
+            className={`max-w-[140px] rounded border px-1.5 py-0.5 font-mono text-xs focus:outline-none ${
+              isRowInvalid
+                ? 'border-red-500 bg-red-950/40 text-red-200 ring-1 ring-red-500/50 focus:border-red-400'
+                : 'border-gray-700 bg-gray-900 text-teal-light focus:border-teal-primary'
+            }`}
           >
             {param.options.map((opt) => (
               <option key={String(opt.value)} value={String(opt.value)}>
@@ -260,14 +304,20 @@ function ParamRow({
               onCommit(param, !param.value);
             }}
             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border transition-colors ${
-              param.value
-                ? 'border-teal-primary bg-teal-primary/30'
-                : 'border-gray-700 bg-gray-900'
+              isRowInvalid
+                ? 'border-red-500 bg-red-950/40 ring-1 ring-red-500/50'
+                : param.value
+                  ? 'border-teal-primary bg-teal-primary/30'
+                  : 'border-gray-700 bg-gray-900'
             }`}
           >
             <span
               className={`inline-block h-3.5 w-3.5 transform rounded-full transition-transform ${
-                param.value ? 'translate-x-4 bg-teal-light' : 'translate-x-0.5 bg-gray-400'
+                param.value
+                  ? isRowInvalid
+                    ? 'translate-x-4 bg-red-400'
+                    : 'translate-x-4 bg-teal-light'
+                  : 'translate-x-0.5 bg-gray-400'
               }`}
             />
           </button>
@@ -288,7 +338,11 @@ function ParamRow({
                 e.currentTarget.blur();
               }
             }}
-            className="w-28 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 font-mono text-xs text-teal-light focus:border-teal-primary focus:outline-none"
+            className={`w-28 rounded border px-1.5 py-0.5 font-mono text-xs focus:outline-none ${
+              isRowInvalid
+                ? 'border-red-500 bg-red-950/40 text-red-200 ring-1 ring-red-500/50 focus:border-red-400'
+                : 'border-gray-700 bg-gray-900 text-teal-light focus:border-teal-primary'
+            }`}
           />
         ) : (
           <div className="flex items-center gap-1">
@@ -301,7 +355,11 @@ function ParamRow({
                 if (next !== numVal) scheduleStepCommit(next);
               }}
               disabled={param.min !== undefined && Number(effectiveValue) <= param.min}
-              className="flex h-5 w-5 items-center justify-center rounded border border-gray-700 bg-surface-overlay text-xs text-gray-400 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className={`flex h-5 w-5 items-center justify-center rounded border text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                isRowInvalid
+                  ? 'border-red-500/60 bg-red-950/30 text-red-300 hover:border-red-400 hover:bg-red-900/40'
+                  : 'border-gray-700 bg-surface-overlay text-gray-400 hover:border-gray-500 hover:text-white'
+              }`}
               title={`Decrease ${param.name} by ${step}`}
               aria-label={`Decrease ${param.name}`}
             >
@@ -328,7 +386,11 @@ function ParamRow({
                   e.currentTarget.blur();
                 }
               }}
-              className="w-20 rounded border border-gray-700 bg-gray-900 px-1.5 py-0.5 text-right font-mono text-xs text-teal-light focus:border-teal-primary focus:outline-none"
+              className={`w-20 rounded border px-1.5 py-0.5 text-right font-mono text-xs focus:outline-none ${
+                isRowInvalid
+                  ? 'border-red-500 bg-red-950/40 text-red-200 ring-1 ring-red-500/50 focus:border-red-400'
+                  : 'border-gray-700 bg-gray-900 text-teal-light focus:border-teal-primary'
+              }`}
             />
             <button
               type="button"
@@ -339,7 +401,11 @@ function ParamRow({
                 if (next !== numVal) scheduleStepCommit(next);
               }}
               disabled={param.max !== undefined && Number(effectiveValue) >= param.max}
-              className="flex h-5 w-5 items-center justify-center rounded border border-gray-700 bg-surface-overlay text-xs text-gray-400 transition-colors hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className={`flex h-5 w-5 items-center justify-center rounded border text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                isRowInvalid
+                  ? 'border-red-500/60 bg-red-950/30 text-red-300 hover:border-red-400 hover:bg-red-900/40'
+                  : 'border-gray-700 bg-surface-overlay text-gray-400 hover:border-gray-500 hover:text-white'
+              }`}
               title={`Increase ${param.name} by ${step}`}
               aria-label={`Increase ${param.name}`}
             >
@@ -367,18 +433,27 @@ function ParamRow({
                 onCommit(param, next);
               }
             }}
-            className="h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-700 accent-teal-primary"
+            className={`h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-gray-700 ${
+              isRowInvalid ? 'accent-red-500' : 'accent-teal-primary'
+            }`}
             aria-label={`${param.name} slider`}
           />
           <span className="font-mono text-[10px] text-gray-500">{param.max}</span>
         </div>
       )}
 
-      {param.description && (
+      {isInvalid || isDraftInvalid ? (
+        <div
+          className="truncate font-mono text-[9.5px] font-medium text-red-400"
+          title={errorMessage ?? (isDraftInvalid ? 'Invalid number format' : 'Invalid')}
+        >
+          Invalid
+        </div>
+      ) : param.description ? (
         <div className="truncate text-[10px] text-gray-500" title={param.description}>
           {param.description}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -392,8 +467,19 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
   const requestRun = usePlaygroundStore((s) => s.requestRun);
   const isRunning = usePlaygroundStore((s) => s.isRunning);
   const lastSuccessfulCode = usePlaygroundStore((s) => s.lastSuccessfulCode);
+  const error = usePlaygroundStore((s) => s.error);
   const [collapsed, setCollapsed] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+
+  const [modifiedSinceSuccess, setModifiedSinceSuccess] = useState<Set<string>>(new Set());
+  const [lastCommittedKey, setLastCommittedKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!error) {
+      setModifiedSinceSuccess(new Set());
+      setLastCommittedKey(null);
+    }
+  }, [error]);
 
   const hasPendingChanges = lastSuccessfulCode !== null && code !== lastSuccessfulCode;
 
@@ -463,6 +549,53 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
 
   if (params.length === 0) return null;
 
+  const invalidParamKeys = useMemo(() => {
+    const invalid = new Set<string>();
+    if (!error) return invalid;
+
+    // 1. Check if error message explicitly references any parameter name (case-insensitive word boundary)
+    const errorLower = error.toLowerCase();
+    for (const p of params) {
+      const regex = new RegExp(`\\b${p.name}\\b`, 'i');
+      if (regex.test(errorLower)) {
+        invalid.add(p.key);
+      }
+    }
+
+    // 2. Identify candidate parameters that differ from lastSuccessfulCode
+    const changedFromGood = new Set<string>();
+    if (lastSuccessfulCode) {
+      try {
+        const lastGoodParams = extractScriptParams(lastSuccessfulCode);
+        for (const p of params) {
+          const good = lastGoodParams.find((g) => g.name === p.name);
+          if (!good || good.value !== p.value) {
+            changedFromGood.add(p.key);
+          }
+        }
+      } catch {
+        // ignore extract errors on prior code
+      }
+    }
+
+    // 3. Flag changed candidate keys or last committed key
+    const allChangedKeys = new Set([...changedFromGood, ...modifiedSinceSuccess]);
+    if (allChangedKeys.size > 0) {
+      if (lastCommittedKey && allChangedKeys.has(lastCommittedKey)) {
+        invalid.add(lastCommittedKey);
+      }
+      for (const k of allChangedKeys) {
+        invalid.add(k);
+      }
+    } else if (lastCommittedKey) {
+      invalid.add(lastCommittedKey);
+    } else if (modifiedParams.length === 1) {
+      invalid.add(modifiedParams[0].key);
+    }
+
+    return invalid;
+  }, [error, lastSuccessfulCode, params, lastCommittedKey, modifiedSinceSuccess, modifiedParams]);
+
   const applyCodeUpdate = (nextCode: string) => {
     const currentCode = usePlaygroundStore.getState().code;
     if (nextCode !== currentCode) {
@@ -474,6 +607,12 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
   };
 
   const handleCommit = (param: ScriptParam, nextValue: ScriptParamValue) => {
+    setLastCommittedKey(param.key);
+    setModifiedSinceSuccess((prev) => {
+      const next = new Set(prev);
+      next.add(param.key);
+      return next;
+    });
     const latestCode = usePlaygroundStore.getState().code;
     const latestParams = latestCode === code ? params : extractScriptParams(latestCode);
     const targetParam = latestParams.find((p) => p.key === param.key) ?? param;
@@ -509,6 +648,14 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
         >
           <span className="shrink-0 text-teal-primary">⚙</span>
           <span className="truncate">Parameters</span>
+          {invalidParamKeys.size > 0 && (
+            <span
+              className="flex h-3.5 items-center rounded bg-red-500/20 px-1 font-mono text-[9px] font-semibold text-red-400 ring-1 ring-red-500/40"
+              title={`${invalidParamKeys.size} parameter${invalidParamKeys.size === 1 ? '' : 's'} caused a processing error`}
+            >
+              {invalidParamKeys.size} error{invalidParamKeys.size === 1 ? '' : 's'}
+            </span>
+          )}
         </button>
         <div className="flex shrink-0 items-center gap-1">
           {modifiedParams.length > 0 && (
@@ -654,6 +801,8 @@ const tag: string = 'ISO';
                   key={p.key}
                   param={p}
                   defaultValue={getDefaultValue(p)}
+                  isInvalid={invalidParamKeys.has(p.key)}
+                  errorMessage={invalidParamKeys.has(p.key) ? error : null}
                   onCommit={handleCommit}
                 />
               ))}
