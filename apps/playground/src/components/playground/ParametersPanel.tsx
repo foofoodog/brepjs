@@ -594,8 +594,6 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
     return [{ title: '', items: params }];
   }, [params]);
 
-  if (params.length === 0) return null;
-
   const invalidParamKeys = useMemo(() => {
     const invalid = new Set<string>();
     if (!error) return invalid;
@@ -687,6 +685,8 @@ export default function ParametersPanel({ onRun }: { onRun?: () => void } = {}) 
     }
     applyCodeUpdate(nextCode);
   };
+
+  if (params.length === 0) return null;
 
   return (
     <div className="pointer-events-auto flex max-h-full min-h-0 w-80 sm:w-96 flex-col overflow-hidden rounded-lg border border-border-subtle bg-surface/95 shadow-xl backdrop-blur">
