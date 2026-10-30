@@ -214,8 +214,39 @@ export interface OcctKernelWasm {
     distance: number,
     angleDeg: number
   ): number;
+  /**
+   * occt-wasm >= 5.9.0: one radius pair per edge, constant where start equals
+   * end, else a linear taper from the edge's first vertex to its last.
+   */
+  filletRadii?(
+    solidId: number,
+    edgeIds: EmVectorUint32,
+    startRadii: EmVectorDouble,
+    endRadii: EmVectorDouble
+  ): number;
+  /**
+   * occt-wasm >= 5.9.0: one distance pair per edge, `distances1` set back on the
+   * reference face. `referenceFaceIds` is empty or one per edge; 0 (or empty)
+   * picks the edge's first adjacent face.
+   */
+  chamferDistances?(
+    solidId: number,
+    edgeIds: EmVectorUint32,
+    distances1: EmVectorDouble,
+    distances2: EmVectorDouble,
+    referenceFaceIds: EmVectorUint32
+  ): number;
+  /** occt-wasm >= 5.9.0: per-edge distance-angle chamfer; reference faces as in `chamferDistances`. */
+  chamferDistAngles?(
+    solidId: number,
+    edgeIds: EmVectorUint32,
+    distances: EmVectorDouble,
+    anglesDeg: EmVectorDouble,
+    referenceFaceIds: EmVectorUint32
+  ): number;
   shell(solidId: number, faceIds: EmVectorUint32, thickness: number, tolerance: number): number;
   offset(solidId: number, distance: number, tolerance: number): number;
+  /** Drafts about the XY plane through the origin, whatever the caller's neutral plane. */
   draft(
     shapeId: number,
     faceId: number,
@@ -223,6 +254,25 @@ export interface OcctKernelWasm {
     dx: number,
     dy: number,
     dz: number
+  ): number;
+  /**
+   * occt-wasm >= 5.9.0: draft every face in one operation, face i by
+   * `anglesRad[i]`, pulling along (dx, dy, dz) about the plane through
+   * (px, py, pz) with normal (nx, ny, nz).
+   */
+  draftFaces?(
+    shapeId: number,
+    faceIds: EmVectorUint32,
+    anglesRad: EmVectorDouble,
+    dx: number,
+    dy: number,
+    dz: number,
+    px: number,
+    py: number,
+    pz: number,
+    nx: number,
+    ny: number,
+    nz: number
   ): number;
 
   // --- Sweep operations ---
@@ -366,6 +416,15 @@ export interface OcctKernelWasm {
     endAngle: number
   ): number;
   makeBezierEdge(flatPoints: EmVectorDouble): number;
+  /** occt-wasm 5.8+: non-rational when `weights` is empty; poles are flat xyz triples. */
+  makeBSplineEdge?(
+    poles: EmVectorDouble,
+    weights: EmVectorDouble,
+    knots: EmVectorDouble,
+    multiplicities: EmVectorInt,
+    degree: number,
+    periodic: boolean
+  ): number;
   makeTangentArc(
     x1: number,
     y1: number,
@@ -387,6 +446,22 @@ export interface OcctKernelWasm {
     pitch: number,
     height: number,
     radius: number
+  ): number;
+  /**
+   * {@link makeHelixWire} with an explicit winding. Optional: absent on WASM
+   * builds older than occt-wasm 4.3.0, so callers must feature-detect it.
+   */
+  makeHelixWireHanded?(
+    px: number,
+    py: number,
+    pz: number,
+    dx: number,
+    dy: number,
+    dz: number,
+    pitch: number,
+    height: number,
+    radius: number,
+    leftHanded: boolean
   ): number;
   makeWire(edgeIds: EmVectorUint32): number;
   makeFace(wireId: number): number;
@@ -481,16 +556,26 @@ export interface OcctKernelWasm {
 
   // --- Tessellation / Mesh ---
   tessellate(id: number, linearDeflection: number, angularDeflection: number): EmMeshData;
-  wireframe(id: number, deflection: number): EmEdgeData;
+  /** `source`: 0 samples each edge's curve, 1 reads the polygon the last mesh stored on it. */
+  wireframe(id: number, deflection: number, source: number): EmEdgeData;
   hasTriangulation(id: number): boolean;
   meshShape(id: number, linearDeflection: number, angularDeflection: number): EmMeshData;
 
   // --- I/O ---
   importStep(data: string): number;
   exportStep(id: number): string;
+  /**
+   * occt-wasm >= 5.9.0: STEP with lengths written in `unit` (mm, cm, m, km,
+   * inch, ft, mi, mil, um, uin). Geometry is read as millimeters.
+   */
+  exportStepWithUnit?(id: number, unit: string): string;
+  /** occt-wasm >= 5.10.0: `schema` is 'AP203', 'AP214', or 'AP242'; '' keeps AP214. */
+  exportStepWithOptions?(id: number, unit: string, schema: string): string;
   importStl(data: string): number;
-  importIges(data: string): number;
-  exportIges(id: number): string;
+  /** Absent from published occt-wasm builds (no IGES translator), so callers feature-detect. */
+  importIges?(data: string): number;
+  /** Absent from published occt-wasm builds (no IGES translator), so callers feature-detect. */
+  exportIges?(id: number): string;
   exportStl(id: number, linearDeflection: number, ascii: boolean): string;
   toBREP(id: number): string;
   fromBREP(data: string): number;
@@ -575,6 +660,10 @@ export interface OcctKernelWasm {
   xcafSetName(docId: number, labelId: number, name: string): void;
   xcafGetRootLabels(docId: number): EmVectorInt;
   xcafExportSTEP(docId: number): string;
+  /** occt-wasm >= 5.9.0: units as in {@link exportStepWithUnit}. */
+  xcafExportSTEPWithUnit?(docId: number, unit: string): string;
+  /** occt-wasm >= 5.10.0: unit and schema as in {@link exportStepWithOptions}. */
+  xcafExportSTEPWithOptions?(docId: number, unit: string, schema: string): string;
 
   // --- Surface construction ---
   bsplineSurface(flatPoints: EmVectorDouble, rows: number, cols: number): number;
@@ -661,6 +750,52 @@ export interface OcctKernelWasm {
     solidId: number,
     edgeIds: EmVectorUint32,
     distance: number,
+    inputFaceHashes: EmVectorInt,
+    hashUpperBound: number
+  ): EmEvolutionData;
+  /** occt-wasm >= 5.9.0: {@link filletRadii} with face evolution. */
+  filletRadiiWithHistory?(
+    solidId: number,
+    edgeIds: EmVectorUint32,
+    startRadii: EmVectorDouble,
+    endRadii: EmVectorDouble,
+    inputFaceHashes: EmVectorInt,
+    hashUpperBound: number
+  ): EmEvolutionData;
+  /** occt-wasm >= 5.9.0: {@link chamferDistances} with face evolution. */
+  chamferDistancesWithHistory?(
+    solidId: number,
+    edgeIds: EmVectorUint32,
+    distances1: EmVectorDouble,
+    distances2: EmVectorDouble,
+    referenceFaceIds: EmVectorUint32,
+    inputFaceHashes: EmVectorInt,
+    hashUpperBound: number
+  ): EmEvolutionData;
+  /** occt-wasm >= 5.11.0: {@link chamferDistAngles} with face evolution. */
+  chamferDistAnglesWithHistory?(
+    solidId: number,
+    edgeIds: EmVectorUint32,
+    distances: EmVectorDouble,
+    anglesDeg: EmVectorDouble,
+    referenceFaceIds: EmVectorUint32,
+    inputFaceHashes: EmVectorInt,
+    hashUpperBound: number
+  ): EmEvolutionData;
+  /** occt-wasm >= 5.9.0 (npm build): {@link draftFaces} with face evolution. */
+  draftFacesWithHistory?(
+    shapeId: number,
+    faceIds: EmVectorUint32,
+    anglesRad: EmVectorDouble,
+    dx: number,
+    dy: number,
+    dz: number,
+    px: number,
+    py: number,
+    pz: number,
+    nx: number,
+    ny: number,
+    nz: number,
     inputFaceHashes: EmVectorInt,
     hashUpperBound: number
   ): EmEvolutionData;

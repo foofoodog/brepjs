@@ -20,14 +20,20 @@ import Blueprint from '@/2d/blueprints/blueprint.js';
 import { Curve2D } from '@/2d/lib/curve2D.js';
 import { bezier2d, line2d, ellipse2d, bspline2d } from '@/2d/curve2dGeometryFns.js';
 import { profile, extrude, Evaluator, toJSON, fromJSON } from '@/csg/index.js';
-import type { AnyShape, Dimension } from '@/core/shapeTypes.js';
+import { isFace, isShape3D, type AnyShape, type Dimension } from '@/core/shapeTypes.js';
 
 beforeAll(async () => {
   await initKernel();
 }, 30000);
 
 function area(s: AnyShape<Dimension>): number {
+  if (!isFace(s) && !isShape3D(s)) throw new Error('expected a face or 3D shape');
   return unwrap(measureArea(s));
+}
+
+function vol(s: AnyShape<Dimension>): number {
+  if (!isShape3D(s)) throw new Error('expected a 3D shape');
+  return unwrap(measureVolume(s));
 }
 
 const itBrep = it.skipIf(currentKernel === 'manifold');
@@ -101,10 +107,10 @@ describe('blueprintToContour', () => {
   });
 
   itBrep('bspline curves approximate per curve and bridge faithfully', () => {
-    // Closed bspline with control POLES on a circle of radius 20: the curve
-    // lies inside the poles' convex hull, so its area sits strictly between a
-    // loose inner bound and the circle area. All kernels agree on the bridged
-    // area to 4 decimals, pinning the approximation chain rather than an
+    // Closed bspline through 16 points of a circle of radius 20. occt-wasm
+    // interpolates them, bulging out of the circle by the interpolation error
+    // between points; kernels that use the points as poles stay inside it. The
+    // bounds hold for both, pinning the approximation chain rather than an
     // unavailable closed form.
     const r = 20;
     const n = 16;
@@ -118,7 +124,7 @@ describe('blueprintToContour', () => {
       expect(isOk(c)).toBe(true);
       const a = evalArea(c);
       expect(a).toBeGreaterThan(1100);
-      expect(a).toBeLessThan(Math.PI * r * r);
+      expect(a).toBeLessThan(Math.PI * r * r * 1.0001);
     });
   });
 
@@ -158,7 +164,7 @@ describe('blueprintToContour', () => {
       const c = blueprintToContour(bp);
       const r = ev.evaluate(extrude(profile(unwrap(c)), [0, 0, 10]));
       expect(isOk(r)).toBe(true);
-      expect(unwrap(measureVolume(unwrap(r)))).toBeCloseTo((40 * 30 - (4 - Math.PI) * 25) * 10, 0);
+      expect(vol(unwrap(r))).toBeCloseTo((40 * 30 - (4 - Math.PI) * 25) * 10, 0);
     });
   });
 });

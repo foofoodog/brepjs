@@ -20,22 +20,33 @@ import { disposeShape } from '../disposeShape.js';
 // Structural views of brepjs-families — the package is dynamically imported from the
 // USER's project (the CLI walks up into the project's node_modules), so brepjs-cad
 // carries no dependency on it and previews plain shapes without it installed.
-interface ResolvedElementLike {
+export interface ResolvedElementLike {
   readonly keyPath: string;
   readonly type: string;
   readonly archetype?: string | undefined;
-  readonly geometry: { readonly kind: string };
+  /** Absent on brepjs-families releases that predate it. */
+  readonly keyed?: boolean | undefined;
+  readonly geometry: { readonly kind: string; readonly structuralHash?: bigint | undefined };
+  readonly props?: Readonly<Record<string, unknown>> | undefined;
   readonly attributes: Readonly<Record<string, unknown>>;
+  readonly relationships?:
+    readonly { readonly kind: string; readonly target: string }[] | undefined;
   readonly children: readonly ResolvedElementLike[];
 }
 
-interface FamiliesEvaluatedNode {
+export interface FamiliesEvaluatedNode {
   readonly keyPath: string;
-  readonly mesh: { readonly ok: boolean; readonly value?: ShapeMesh | undefined };
-  readonly shape?: { readonly ok: boolean; readonly value?: AnyShape | undefined } | undefined;
+  readonly mesh: {
+    readonly ok: boolean;
+    readonly value?: ShapeMesh | undefined;
+    readonly error?: unknown;
+  };
+  readonly shape?:
+    | { readonly ok: boolean; readonly value?: AnyShape | undefined; readonly error?: unknown }
+    | undefined;
 }
 
-interface FamiliesNs {
+export interface FamiliesNs {
   resolve(el: unknown): ResolvedElementLike;
   evaluateModel(
     root: ResolvedElementLike,
@@ -43,6 +54,15 @@ interface FamiliesNs {
     env: Record<string, unknown>,
     options: { shapes?: boolean }
   ): { root: ResolvedElementLike; byKeyPath: ReadonlyMap<string, FamiliesEvaluatedNode> };
+  /** Absent on brepjs-families releases that predate source locations. */
+  captureSourceLocations?(on: boolean): void;
+  sourceOf?(element: unknown): SourceLocationLike | undefined;
+}
+
+export interface SourceLocationLike {
+  readonly file: string;
+  readonly line: number;
+  readonly column: number;
 }
 
 export interface PreviewBuild {
@@ -61,13 +81,18 @@ function isResultLike(v: unknown): v is { ok: boolean; value?: unknown; error?: 
   return isRecord(v) && typeof v['ok'] === 'boolean' && ('value' in v || 'error' in v);
 }
 
-function isResolvedElementLike(v: unknown): v is ResolvedElementLike {
+export function isResolvedElementLike(v: unknown): v is ResolvedElementLike {
   return (
     isRecord(v) &&
     typeof v['keyPath'] === 'string' &&
     isRecord(v['geometry']) &&
     Array.isArray(v['children'])
   );
+}
+
+/** True for a families element tree, rendered or already resolved. */
+export function isFamiliesTree(v: unknown): boolean {
+  return isResolvedElementLike(v) || isElementLike(v);
 }
 
 function isElementLike(v: unknown): boolean {
@@ -93,6 +118,14 @@ export async function evaluatePreview(
   opts: { fresh?: boolean } = {}
 ): Promise<PreviewBuild> {
   const { nodes, tree } = await evaluateElements(entryPath, opts);
+  return previewBuildOf(nodes, tree);
+}
+
+/** Merge per-element meshes into the preview payload (and its whole-model ShapeMesh). */
+export function previewBuildOf(
+  nodes: ReadonlyMap<string, EvaluatedNodeLike>,
+  tree: PreviewTreeNode | null
+): PreviewBuild {
   const { data, elements, failed } = modelToMeshData({ byKeyPath: nodes });
   return finish(data, elements, failed, tree);
 }
@@ -105,13 +138,18 @@ export async function evaluatePreview(
  * identities.
  */
 export function resolveFamiliesEntry(entryPath: string): string | undefined {
+  return resolveProjectPackageEntry('brepjs-families', entryPath);
+}
+
+/** ESM entry of package `name` as installed for the project containing `fromPath`. */
+export function resolveProjectPackageEntry(name: string, fromPath: string): string | undefined {
   let requireEntry: string;
   try {
-    requireEntry = createRequire(pathToFileURL(entryPath).href).resolve('brepjs-families');
+    requireEntry = createRequire(pathToFileURL(fromPath).href).resolve(name);
   } catch {
     return undefined;
   }
-  const pkgDir = packageRootOf(dirname(requireEntry), 'brepjs-families');
+  const pkgDir = packageRootOf(dirname(requireEntry), name);
   if (pkgDir === undefined) return requireEntry;
   try {
     const pkg = JSON.parse(readFileSync(resolvePath(pkgDir, 'package.json'), 'utf8')) as {
@@ -132,7 +170,7 @@ function esmEntryOf(pkg: { exports?: unknown; module?: unknown }): string | unde
   );
 }
 
-async function importFamilies(entryPath: string): Promise<FamiliesNs | undefined> {
+export async function importFamilies(entryPath: string): Promise<FamiliesNs | undefined> {
   try {
     // Dev-dependency install: the CLI lives inside the project's node_modules, so the
     // bare specifier resolves to the project's copy.
@@ -155,10 +193,14 @@ export interface EvaluatedElements {
   readonly tree: PreviewTreeNode;
 }
 
-export async function evaluateElements(
+/**
+ * Boot the kernel, import the module, and produce its default export's value: called
+ * when it is a function, awaited, and unwrapped when it is a `Result`.
+ */
+export async function loadModelValue(
   entryPath: string,
   opts: { fresh?: boolean } = {}
-): Promise<EvaluatedElements> {
+): Promise<{ brep: BrepNs; value: unknown }> {
   const brep = await loadBrep();
   await initOcctWasm(brep);
   const mod = await loadPart(entryPath, opts.fresh ?? false);
@@ -167,10 +209,9 @@ export async function evaluateElements(
       'module has no default export (expected a shape, a families element tree, or a function returning one)'
     );
   }
-  const produced: unknown = await Promise.resolve(
+  let value: unknown = await Promise.resolve(
     typeof mod.default === 'function' ? (mod.default as () => unknown)() : mod.default
   );
-  let value = produced;
   if (isResultLike(value)) {
     if (!value.ok) {
       throw new Error(
@@ -179,14 +220,22 @@ export async function evaluateElements(
     }
     value = value.value;
   }
-  if (isResolvedElementLike(value) || isElementLike(value)) {
+  return { brep, value };
+}
+
+export async function evaluateElements(
+  entryPath: string,
+  opts: { fresh?: boolean } = {}
+): Promise<EvaluatedElements> {
+  const { brep, value } = await loadModelValue(entryPath, opts);
+  if (isFamiliesTree(value)) {
     return treeElements(brep, value, entryPath);
   }
   return shapeElements(brep, value as AnyShape);
 }
 
 // Edges are cosmetic, so a meshEdges failure must not fail the element.
-function tryMeshEdges(brep: BrepNs, shape: AnyShape): Float32Array | undefined {
+export function tryMeshEdges(brep: BrepNs, shape: AnyShape): Float32Array | undefined {
   try {
     return brep.meshEdges(shape).lines;
   } catch {
@@ -223,8 +272,16 @@ async function treeElements(
   const resolved = isResolvedElementLike(value) ? value : fam.resolve(value);
   using evaluator = new brep.csg.Evaluator();
   const model = fam.evaluateModel(resolved, evaluator, {}, { shapes: true });
+  return { nodes: familiesNodes(brep, model.byKeyPath), tree: previewTree(model.root) };
+}
+
+/** Renderable nodes for evaluated families elements, with edges meshed from their shapes. */
+export function familiesNodes(
+  brep: BrepNs,
+  byKeyPath: ReadonlyMap<string, FamiliesEvaluatedNode>
+): Map<string, EvaluatedNodeLike> {
   const nodes = new Map<string, EvaluatedNodeLike>();
-  for (const [keyPath, node] of model.byKeyPath) {
+  for (const [keyPath, node] of byKeyPath) {
     const m = node.mesh.ok ? node.mesh.value : undefined;
     if (!m) {
       nodes.set(keyPath, { mesh: { ok: false } });
@@ -234,7 +291,7 @@ async function treeElements(
     const shape = node.shape?.ok ? node.shape.value : undefined;
     nodes.set(keyPath, toEvaluatedNode(m, shape ? tryMeshEdges(brep, shape) : undefined));
   }
-  return { nodes, tree: toTree(model.root) };
+  return nodes;
 }
 
 function shapeElements(brep: BrepNs, shape: AnyShape): EvaluatedElements {
@@ -253,7 +310,7 @@ function shapeElements(brep: BrepNs, shape: AnyShape): EvaluatedElements {
   }
 }
 
-function toTree(el: ResolvedElementLike): PreviewTreeNode {
+export function previewTree(el: ResolvedElementLike): PreviewTreeNode {
   const name = el.attributes['name'];
   return {
     keyPath: el.keyPath,
@@ -261,7 +318,7 @@ function toTree(el: ResolvedElementLike): PreviewTreeNode {
     ...(el.archetype !== undefined ? { archetype: el.archetype } : {}),
     ...(typeof name === 'string' ? { name } : {}),
     hasGeometry: el.geometry.kind !== 'Empty',
-    children: el.children.map(toTree),
+    children: el.children.map(previewTree),
   };
 }
 
@@ -299,7 +356,7 @@ function finish(
   data: MeshData,
   elements: readonly ElementRange[],
   failed: readonly string[],
-  tree: PreviewTreeNode
+  tree: PreviewTreeNode | null
 ): PreviewBuild {
   const payload: PreviewModelPayload = {
     data,

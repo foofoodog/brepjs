@@ -6,6 +6,7 @@
  */
 
 import { getKernel } from '@/kernel/index.js';
+import { isUnsupportedKernelOperationError } from '@/kernel/unsupported.js';
 import type { KernelShape, KernelType } from '@/kernel/types.js';
 import type { Vec3 } from '@/core/types.js';
 import { vecAdd, vecLength } from '@/core/vecOps.js';
@@ -22,6 +23,7 @@ import {
   validationError,
   kernelError,
   typeCastError,
+  unsupportedError,
   BrepErrorCode,
 } from '@/core/errors.js';
 import { buildLawFromProfile, type ExtrusionProfile, type SweepOptions } from './extrudeUtils.js';
@@ -72,6 +74,15 @@ function makeSpineWire(start: Vec3, end: Vec3): Wire {
   return castResultShape(wire) as Wire;
 }
 
+/** A planar face bounded by `wire`, or `null` when the wire does not span one. */
+function planarFaceOf(wire: Wire<Dimension>): KernelShape {
+  try {
+    return getKernel().makeFace(wire.wrapped, true);
+  } catch {
+    return null;
+  }
+}
+
 /** Build a helix wire for twist extrusion. */
 function makeHelixWire(
   pitch: number,
@@ -120,6 +131,18 @@ function castSweepShellTuple(result: {
   return ok([shape, startWire, endWire] as [Shape3D, Wire, Wire]);
 }
 
+/** `UNSUPPORTED_CAPABILITY` for a sweep option the kernel cannot build (a twist or a scaling law on brepkit). */
+function sweepUnsupportedError(kernelId: string, e: unknown): BrepError {
+  const raw = e instanceof Error ? e.message : String(e);
+  return unsupportedError(
+    BrepErrorCode.UNSUPPORTED_CAPABILITY,
+    `sweep: the ${kernelId} kernel cannot build this sweep (${raw})`,
+    e,
+    { kernel: kernelId, operation: 'sweep' },
+    'Drop the twist or scaling law, or use the occt-wasm kernel'
+  );
+}
+
 /**
  * Sweep a wire profile along a spine wire to create a 3D shape.
  *
@@ -130,8 +153,30 @@ function castSweepShellTuple(result: {
  * @param spine - The path wire to sweep along.
  * @param config - Sweep configuration (frenet, transition mode, scaling law, etc.).
  * @param shellMode - When `true`, return `[shell, startWire, endWire]` instead of a solid.
- * @returns `Result` containing either a solid or a `[Shape3D, Wire, Wire]` tuple in shell mode.
+ * @returns `Result` containing the swept shape, or a `[Shape3D, Wire, Wire]` tuple in shell mode;
+ *   Err `UNSUPPORTED_CAPABILITY` when the kernel cannot build the auxiliary spine or law
+ *   (brepkit builds neither).
  */
+export function sweep(
+  wire: ClosedWire<Dimension>,
+  spine: Wire<Dimension>,
+  config?: SweepOptions,
+  shellMode?: false
+): Result<Shape3D>;
+/** Sweep in shell mode, returning `[shell, startWire, endWire]`. */
+export function sweep(
+  wire: ClosedWire<Dimension>,
+  spine: Wire<Dimension>,
+  config: SweepOptions | undefined,
+  shellMode: true
+): Result<[Shape3D, Wire, Wire]>;
+/** Sweep with a shell mode known only at runtime. */
+export function sweep(
+  wire: ClosedWire<Dimension>,
+  spine: Wire<Dimension>,
+  config?: SweepOptions,
+  shellMode?: boolean
+): Result<Shape3D | [Shape3D, Wire, Wire]>;
 export function sweep(
   wire: ClosedWire<Dimension>,
   spine: Wire<Dimension>,
@@ -141,7 +186,15 @@ export function sweep(
   // Fast path: simple pipe mode (BRepOffsetAPI_MakePipe)
   if (config.mode === 'simple' && !shellMode) {
     const kernel = getKernel();
-    const resultOc = kernel.simplePipe(wire.wrapped, spine.wrapped);
+    // MakePipe turns a wire profile into an open tube; piping the profile's face
+    // gives the capped solid. A non-planar profile has no face and stays a tube.
+    const profileFace = planarFaceOf(wire);
+    let resultOc: KernelShape;
+    try {
+      resultOc = kernel.simplePipe(profileFace ?? wire.wrapped, spine.wrapped);
+    } finally {
+      if (profileFace) kernel.dispose(profileFace);
+    }
     const shape = castResultShape(resultOc);
     if (!isShape3D(shape)) {
       disposeResultShape(shape);
@@ -168,21 +221,27 @@ export function sweep(
   const kernel = getKernel();
   const withCorrection = transitionMode === 'round' ? true : !!forceProfileSpineOthogonality;
 
-  const result = kernel.sweepPipeShell(wire.wrapped, spine.wrapped, {
-    transitionMode,
-    contact: !!withContact,
-    correction: withCorrection,
-    frenet,
-    shellMode,
-    ...(auxiliarySpine?.wrapped ? { auxiliary: auxiliarySpine.wrapped } : {}),
-    ...(law !== null ? { law } : {}),
-    ...(support !== null ? { support } : {}),
-    tolerance,
-    boundTolerance,
-    angularTolerance,
-    maxDegree,
-    maxSegments,
-  });
+  let result: ReturnType<typeof kernel.sweepPipeShell>;
+  try {
+    result = kernel.sweepPipeShell(wire.wrapped, spine.wrapped, {
+      transitionMode,
+      contact: !!withContact,
+      correction: withCorrection,
+      frenet,
+      shellMode,
+      ...(auxiliarySpine?.wrapped ? { auxiliary: auxiliarySpine.wrapped } : {}),
+      ...(law !== null ? { law } : {}),
+      ...(support !== null ? { support } : {}),
+      tolerance,
+      boundTolerance,
+      angularTolerance,
+      maxDegree,
+      maxSegments,
+    });
+  } catch (e) {
+    if (!isUnsupportedKernelOperationError(e)) throw e;
+    return err(sweepUnsupportedError(kernel.kernelId, e));
+  }
 
   if (shellMode && typeof result === 'object' && 'firstShape' in result) {
     return castSweepShellTuple(result);
@@ -219,8 +278,9 @@ export function supportExtrude(
   support: KernelType
 ): Result<Shape3D> {
   const endPoint = vecAdd(center, normal);
-  const spine = makeSpineWire(center, endPoint);
-  return sweep(wire, spine, { support }) as Result<Shape3D>;
+  // sweep is immutable and does not consume the spine, so dispose it on every exit.
+  using spine = makeSpineWire(center, endPoint);
+  return sweep(wire, spine, { support });
 }
 
 /**
@@ -235,8 +295,32 @@ export function supportExtrude(
  * @param normal - Direction and length of the extrusion. Must be non-zero.
  * @param profileShape - Optional scaling profile applied along the extrusion.
  * @param shellMode - When `true`, return `[shell, startWire, endWire]` instead of a solid.
- * @returns `Result` containing the extruded shape or a shell tuple.
+ * @returns `Result` containing the extruded shape, or a shell tuple in shell mode; Err
+ *   `UNSUPPORTED_CAPABILITY` for a profile on a kernel without a scaling-law sweep (brepkit).
  */
+export function complexExtrude(
+  wire: ClosedWire<Dimension>,
+  center: Vec3,
+  normal: Vec3,
+  profileShape?: ExtrusionProfile,
+  shellMode?: false
+): Result<Shape3D>;
+/** Complex extrusion in shell mode, returning `[shell, startWire, endWire]`. */
+export function complexExtrude(
+  wire: ClosedWire<Dimension>,
+  center: Vec3,
+  normal: Vec3,
+  profileShape: ExtrusionProfile | undefined,
+  shellMode: true
+): Result<[Shape3D, Wire, Wire]>;
+/** Complex extrusion with a shell mode known only at runtime. */
+export function complexExtrude(
+  wire: ClosedWire<Dimension>,
+  center: Vec3,
+  normal: Vec3,
+  profileShape?: ExtrusionProfile,
+  shellMode?: boolean
+): Result<Shape3D | [Shape3D, Wire, Wire]>;
 export function complexExtrude(
   wire: ClosedWire<Dimension>,
   center: Vec3,
@@ -275,8 +359,35 @@ export function complexExtrude(
  * @param normal - Direction and length of the extrusion. Must be non-zero.
  * @param profileShape - Optional scaling profile applied along the extrusion.
  * @param shellMode - When `true`, return `[shell, startWire, endWire]` instead of a solid.
- * @returns `Result` containing the twisted extruded shape or a shell tuple.
+ * @returns `Result` containing the twisted extruded shape, or a shell tuple in shell mode;
+ *   Err `UNSUPPORTED_CAPABILITY` on a kernel without a twisted sweep (brepkit).
  */
+export function twistExtrude(
+  wire: ClosedWire<Dimension>,
+  angleDegrees: number,
+  center: Vec3,
+  normal: Vec3,
+  profileShape?: ExtrusionProfile,
+  shellMode?: false
+): Result<Shape3D>;
+/** Twisted extrusion in shell mode, returning `[shell, startWire, endWire]`. */
+export function twistExtrude(
+  wire: ClosedWire<Dimension>,
+  angleDegrees: number,
+  center: Vec3,
+  normal: Vec3,
+  profileShape: ExtrusionProfile | undefined,
+  shellMode: true
+): Result<[Shape3D, Wire, Wire]>;
+/** Twisted extrusion with a shell mode known only at runtime. */
+export function twistExtrude(
+  wire: ClosedWire<Dimension>,
+  angleDegrees: number,
+  center: Vec3,
+  normal: Vec3,
+  profileShape?: ExtrusionProfile,
+  shellMode?: boolean
+): Result<Shape3D | [Shape3D, Wire, Wire]>;
 export function twistExtrude(
   wire: ClosedWire<Dimension>,
   angleDegrees: number,

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import { runPart } from '@/verify/runPart.js';
+import { reportOk } from '@/verify/report.js';
 
 const fix = (n: string) => fileURLToPath(new URL(`./fixtures/${n}`, import.meta.url));
 
@@ -26,6 +27,14 @@ describe('runPart', () => {
     expect(report.measurements.volume).toBeCloseTo(1000, 1);
   }, 30000);
 
+  it('engraves text with the bundled fallback font when the part loads none', async () => {
+    const { report } = await runPart(fix('engravedText.brep.ts'));
+    expect(report.errors).toEqual([]);
+    // 40 x 20 x 3 plate minus the 1 mm-deep "Pi 5" cut.
+    expect(report.measurements.volume).toBeLessThan(2400);
+    expect(report.measurements.volume).toBeGreaterThan(2300);
+  }, 30000);
+
   it('flags a degenerate part deterministically', async () => {
     const { report } = await runPart(fix('degenerate.brep.ts'));
     const failed = report.errors.length + report.checks.filter((c) => !c.passed).length;
@@ -36,6 +45,23 @@ describe('runPart', () => {
     const { step } = await runPart(fix('validBox.brep.ts'), { step: true });
     expect(step).toBeInstanceOf(ArrayBuffer);
     expect((step as ArrayBuffer).byteLength).toBeGreaterThan(0);
+    // CAD tools show the STEP product name as the model's root; name it after the part file.
+    expect(new TextDecoder().decode(step)).toContain("PRODUCT('validBox'");
+  }, 30000);
+
+  it('names each solid of a multi-solid part in the STEP', async () => {
+    const { step } = await runPart(fix('twoBoxes.brep.ts'), { step: true });
+    const text = new TextDecoder().decode(step);
+    expect(text).toContain("PRODUCT('twoBoxes-1'");
+    expect(text).toContain("PRODUCT('twoBoxes-2'");
+  }, 30000);
+
+  it('keeps non-solid geometry in the STEP when a part mixes solids and a face', async () => {
+    const { step } = await runPart(fix('boxesAndFace.brep.ts'), { step: true });
+    const text = new TextDecoder().decode(step);
+    expect(text).toContain("PRODUCT('boxesAndFace'");
+    // 6 faces per box plus the free triangle.
+    expect(text.match(/ADVANCED_FACE\(/g)?.length ?? 0).toBeGreaterThanOrEqual(13);
   }, 30000);
 
   it('emits a GLB buffer (derived preview) for a valid shape', async () => {
@@ -79,6 +105,32 @@ describe('runPart', () => {
     expect(report.errorInfos.some((e) => e.code === 'FILLET_FAILED')).toBe(true);
     // ...so the matching hint fires instead of the table going dark.
     expect(report.hints.some((h) => h.code === 'FILLET_FAILED')).toBe(true);
+  }, 30000);
+
+  it('verifies the shape inside a fluent shape(...) chain', async () => {
+    const { report } = await runPart(fix('fluentChain.brep.ts'));
+    expect(report.errors).toEqual([]);
+    expect(report.shapeType).toBe('Solid');
+    expect(report.measurements.bounds?.xMin).toBeCloseTo(5, 6);
+  }, 30000);
+
+  it.each(['returnsSketch.brep.ts', 'returnsArray.brep.ts', 'returnsNullProtoObject.brep.ts'])(
+    'reports PART_NOT_A_SHAPE instead of crashing when %s returns a non-shape',
+    async (file) => {
+      const { report, shape } = await runPart(fix(file));
+      expect(shape).toBeNull();
+      expect(reportOk(report)).toBe(false);
+      expect(report.hints.some((h) => h.code === 'PART_NOT_A_SHAPE')).toBe(true);
+    },
+    30000
+  );
+
+  it('fails a part that returns a face instead of a solid', async () => {
+    const { report } = await runPart(fix('returnsFace.brep.ts'));
+    expect(report.shapeType).toBe('Face');
+    expect(report.checks).toContainEqual(expect.objectContaining({ name: 'is3D', passed: false }));
+    expect(reportOk(report)).toBe(false);
+    expect(report.hints.some((h) => h.code === 'PART_NOT_3D')).toBe(true);
   }, 30000);
 
   it('surfaces an INVALID_FILLET_RADIUS hint for a negative radius', async () => {

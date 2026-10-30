@@ -7,7 +7,19 @@ import type { BrepkitKernel } from './brepkitWasmTypes.js';
 import type { KernelShape, DistanceResult, ShapeType } from '@/kernel/types.js';
 import type { KernelAdapter } from '@/kernel/interfaces/index.js';
 import type { BulkMeasurement } from '@/kernel/interfaces/measureOps.js';
-import { type BrepkitHandle, unwrap, DEFAULT_DEFLECTION } from './helpers.js';
+import { UnsupportedKernelOperationError } from '@/kernel/unsupported.js';
+import {
+  type BrepkitHandle,
+  unwrap,
+  toArray,
+  edgeHandle,
+  faceHandle,
+  solidHandle,
+  compoundSolidIds,
+  syntheticCompounds,
+  edgeBoxPoints,
+  DEFAULT_DEFLECTION,
+} from './helpers.js';
 import { iterShapes } from './topologyOps.js';
 import { vertexPosition, uvBounds, pointOnSurface } from './geometryOps.js';
 import { vec3At, wasmIndex } from '@/utils/vec3.js';
@@ -127,95 +139,263 @@ export function boundingBox(
   min: [number, number, number];
   max: [number, number, number];
 } {
-  const h = shape as BrepkitHandle;
-  if (h.type === 'solid') {
-    const bb = bk.boundingBox(unwrap(shape));
-    return { min: vec3At(bb, 0), max: vec3At(bb, 3) };
+  const points = boxPoints(bk, shape as BrepkitHandle);
+  const [first] = points;
+  if (!first) return { min: [0, 0, 0], max: [0, 0, 0] };
+  const min: [number, number, number] = [...first];
+  const max: [number, number, number] = [...first];
+  for (const p of points) {
+    for (let k = 0; k < 3; k++) {
+      min[k] = Math.min(wasmIndex(min, k), wasmIndex(p, k));
+      max[k] = Math.max(wasmIndex(max, k), wasmIndex(p, k));
+    }
   }
-  if (h.type === 'vertex') {
-    const pos = vertexPosition(bk, shape);
-    return { min: [...pos], max: [...pos] };
-  }
-  // For faces, edges, wires, compounds, shells: compute from vertex positions
-  const vertices = iterShapes(bk, shape, 'vertex');
-  if (vertices.length === 0) {
-    return { min: [0, 0, 0], max: [0, 0, 0] };
-  }
-  const first = vertexPosition(bk, vertices[0]);
-  let minX = first[0],
-    minY = first[1],
-    minZ = first[2];
-  let maxX = first[0],
-    maxY = first[1],
-    maxZ = first[2];
-  for (let i = 1; i < vertices.length; i++) {
-    const p = vertexPosition(bk, vertices[i]);
-    if (p[0] < minX) minX = p[0];
-    if (p[0] > maxX) maxX = p[0];
-    if (p[1] < minY) minY = p[1];
-    if (p[1] > maxY) maxY = p[1];
-    if (p[2] < minZ) minZ = p[2];
-    if (p[2] > maxZ) maxZ = p[2];
-  }
-  return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
+  return { min, max };
 }
 
+type Point = [number, number, number];
+
+/**
+ * Points whose bounding box is the shape's: a solid's own box corners, a
+ * face's or shell's face box points (see `faceBoxPoints`), and for anything
+ * else the box points of its edges (see `edgeBoxPoints`), so an arc's bulge
+ * counts and not just its end vertices.
+ */
+function boxPoints(bk: BrepkitKernel, h: BrepkitHandle): Point[] {
+  switch (h.type) {
+    case 'solid': {
+      const bb = bk.boundingBox(h.id);
+      return [vec3At(bb, 0), vec3At(bb, 3)];
+    }
+    case 'vertex':
+      return [vec3At(bk.getVertexPosition(h.id))];
+    case 'edge':
+      return edgeBoxPoints(bk, h.id);
+    case 'face':
+      return faceBoxPoints(bk, h);
+    case 'shell':
+      return iterShapes(bk, h, 'face').flatMap((f) => faceBoxPoints(bk, f as BrepkitHandle));
+    case 'compound': {
+      const children = syntheticCompounds.get(h.id) ?? compoundSolidIds(bk, h.id).map(solidHandle);
+      return children.flatMap((child) => boxPoints(bk, child));
+    }
+    default:
+      return boundaryBoxPoints(bk, h);
+  }
+}
+
+function boundaryBoxPoints(bk: BrepkitKernel, h: BrepkitHandle): Point[] {
+  const edges = iterShapes(bk, h, 'edge');
+  if (edges.length > 0) return edges.flatMap((e) => edgeBoxPoints(bk, unwrap(e)));
+  return iterShapes(bk, h, 'vertex').map((v) => vertexPosition(bk, v));
+}
+
+/**
+ * A face's extreme along an axis lies on its boundary or at a point inside it
+ * where that coordinate peaks on the surface. Planes, cylinders, and cones have
+ * no such interior peak (a straight line through any inner point runs to the
+ * boundary), so their edges bound them. A sphere or torus adds the surface's
+ * peak points that lie on the face, which bounds it exactly; any other surface
+ * adds the vertices of its tessellation, which bound it to within the
+ * deflection.
+ */
+function faceBoxPoints(bk: BrepkitKernel, face: BrepkitHandle): Point[] {
+  const points = boundaryBoxPoints(bk, face);
+  const surfaceType = bk.getSurfaceType(face.id);
+  if (surfaceType === 'plane' || surfaceType === 'cylinder' || surfaceType === 'cone') {
+    return points;
+  }
+  const peaks = surfacePeaks(bk, face.id);
+  if (peaks) {
+    const tolerance = ON_FACE_TOLERANCE * Math.max(1, peaks.size);
+    const onFace = (p: Point): boolean =>
+      wasmIndex(bk.pointToFaceDistance(p[0], p[1], p[2], face.id), 0) <= tolerance;
+    return [...points, ...peaks.points.filter(onFace)];
+  }
+  const { positions } = bk.tessellateFace(face.id, MESH_BOX_DEFLECTION * (diagonal(points) || 1));
+  const vertices: Point[] = [];
+  for (let i = 0; i + 2 < positions.length; i += 3) vertices.push(vec3At(positions, i));
+  return [...points, ...vertices];
+}
+
+const ON_FACE_TOLERANCE = 1e-7;
+const MESH_BOX_DEFLECTION = 1e-3;
+const TORUS_CIRCLE_SAMPLES = 64;
+const AXES: readonly Point[] = [
+  [1, 0, 0],
+  [0, 1, 0],
+  [0, 0, 1],
+];
+
+function diagonal(points: readonly Point[]): number {
+  if (points.length === 0) return 0;
+  const span = [0, 1, 2].map((k) => {
+    const values = points.map((p) => wasmIndex(p, k));
+    return Math.max(...values) - Math.min(...values);
+  });
+  return Math.hypot(...span);
+}
+
+const add = (a: Point, b: Point, s = 1): Point => [
+  a[0] + s * b[0],
+  a[1] + s * b[1],
+  a[2] + s * b[2],
+];
+const dot = (a: Point, b: Point): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+/**
+ * The points where a coordinate peaks on a sphere or torus surface, with the
+ * surface's size for the on-face tolerance; undefined for any other surface or
+ * a torus whose frame does not read back as orthonormal.
+ */
+function surfacePeaks(
+  bk: BrepkitKernel,
+  faceId: number
+): { points: Point[]; size: number } | undefined {
+  let params: {
+    type?: string;
+    center?: Point;
+    radius?: number;
+    majorRadius?: number;
+    minorRadius?: number;
+  };
+  try {
+    params = JSON.parse(bk.getAnalyticSurfaceParams(faceId)) as typeof params;
+  } catch {
+    return undefined;
+  }
+  const c = params.center;
+  if (c?.length !== 3) return undefined;
+  if (params.type === 'sphere' && typeof params.radius === 'number') {
+    const r = params.radius;
+    return { points: AXES.flatMap((e) => [add(c, e, r), add(c, e, -r)]), size: r };
+  }
+  if (
+    params.type === 'torus' &&
+    typeof params.majorRadius === 'number' &&
+    typeof params.minorRadius === 'number'
+  ) {
+    return torusPeaks(bk, faceId, c, params.majorRadius, params.minorRadius);
+  }
+  return undefined;
+}
+
+/**
+ * brepkit's torus params carry no axis, so the frame is read off the surface,
+ * which brepkit parametrizes as c + (R + r cos v)(cos u X + sin u Y) + r sin v Z.
+ * Along a direction d with a component w across the axis, the coordinate peaks
+ * at c ± (R w/|w| + r d). Along the axis it peaks on the whole circle at c ± r Z,
+ * which is sampled.
+ */
+function torusPeaks(
+  bk: BrepkitKernel,
+  faceId: number,
+  c: Point,
+  majorR: number,
+  minorR: number
+): { points: Point[]; size: number } | undefined {
+  const at = (u: number, v: number): Point => vec3At(bk.evaluateSurface(faceId, u, v));
+  const x = add(at(0, 0), c, -1).map((n) => n / (majorR + minorR)) as Point;
+  const z = add(add(at(0, Math.PI / 2), c, -1), x, -majorR).map((n) => n / minorR) as Point;
+  const unit = (p: Point): boolean => Math.abs(Math.hypot(...p) - 1) < 1e-6;
+  if (!unit(x) || !unit(z) || Math.abs(dot(x, z)) > 1e-6) return undefined;
+  const y: Point = [
+    z[1] * x[2] - z[2] * x[1],
+    z[2] * x[0] - z[0] * x[2],
+    z[0] * x[1] - z[1] * x[0],
+  ];
+  const points: Point[] = [];
+  for (const d of AXES) {
+    const across = add(d, z, -dot(d, z));
+    const len = Math.hypot(...across);
+    if (len > 1e-9) {
+      const peak = add(across.map((n) => (n * majorR) / len) as Point, d, minorR);
+      points.push(add(c, peak), add(c, peak, -1));
+      continue;
+    }
+    for (const side of [1, -1]) {
+      const rim = add(c, z, side * minorR);
+      for (let i = 0; i < TORUS_CIRCLE_SAMPLES; i++) {
+        const t = (2 * Math.PI * i) / TORUS_CIRCLE_SAMPLES;
+        points.push(add(add(rim, x, majorR * Math.cos(t)), y, majorR * Math.sin(t)));
+      }
+    }
+  }
+  return { points, size: majorR + minorR };
+}
+
+/**
+ * Minimum distance between two shapes. brepkit-wasm measures from a point to a
+ * solid, face or edge, and between two solids; a wire, shell or compound is
+ * measured through its edges, faces or children, taking the closest pair. Any
+ * other pairing (face to face, edge to edge, face to solid, ...) has no exact
+ * brepkit measure and throws {@link UnsupportedKernelOperationError}.
+ */
 export function distance(
   bk: BrepkitKernel,
   shape1: KernelShape,
   shape2: KernelShape
 ): DistanceResult {
-  const h1 = shape1 as BrepkitHandle;
-  const h2 = shape2 as BrepkitHandle;
-
-  if (h1.type === 'solid' && h2.type === 'solid') {
-    const buf = bk.solidToSolidDistance(h1.id, h2.id);
-    return {
-      value: wasmIndex(buf, 0),
-      point1: vec3At(buf, 1),
-      point2: vec3At(buf, 4),
-    };
-  }
-
-  // Point-to-{solid,face,edge}: same shape — fetch the vertex position then
-  // call the appropriate native distance function on it.
-  if (h1.type === 'vertex' && (h2.type === 'solid' || h2.type === 'face' || h2.type === 'edge')) {
-    const point1 = vec3At(bk.getVertexPosition(h1.id));
-    const result =
-      h2.type === 'solid'
-        ? bk.pointToSolidDistance(point1[0], point1[1], point1[2], h2.id)
-        : h2.type === 'face'
-          ? bk.pointToFaceDistance(point1[0], point1[1], point1[2], h2.id)
-          : bk.pointToEdgeDistance(point1[0], point1[1], point1[2], h2.id);
-    return {
-      value: wasmIndex(result, 0),
-      point1,
-      point2: vec3At(result, 1),
-    };
-  }
-
-  // Fallback: use vertex positions for unsupported pairs
-  const getPos = (s: BrepkitHandle): [number, number, number] => {
-    if (s.type === 'vertex') {
-      return vec3At(bk.getVertexPosition(s.id));
+  const parts1 = distanceParts(bk, shape1 as BrepkitHandle);
+  const parts2 = distanceParts(bk, shape2 as BrepkitHandle);
+  let best: DistanceResult | undefined;
+  for (const a of parts1) {
+    for (const b of parts2) {
+      const d = partDistance(bk, a, b);
+      if (best === undefined || d.value < best.value) best = d;
     }
-    // Use bounding box center as approximation
-    if (s.type === 'solid') {
-      const bb = bk.boundingBox(s.id);
-      return [
-        (wasmIndex(bb, 0) + wasmIndex(bb, 3)) / 2,
-        (wasmIndex(bb, 1) + wasmIndex(bb, 4)) / 2,
-        (wasmIndex(bb, 2) + wasmIndex(bb, 5)) / 2,
-      ];
+  }
+  if (best === undefined) throw new Error('brepkit: distance needs two non-empty shapes');
+  return best;
+}
+
+/** The solids, faces, edges and vertices a shape is measured through. */
+function distanceParts(bk: BrepkitKernel, h: BrepkitHandle): BrepkitHandle[] {
+  switch (h.type) {
+    case 'wire':
+      return toArray(bk.getWireEdges(h.id)).map(edgeHandle);
+    case 'shell':
+      return toArray(bk.getShellFaces(h.id)).map(faceHandle);
+    case 'compound': {
+      const children = syntheticCompounds.get(h.id) ?? compoundSolidIds(bk, h.id).map(solidHandle);
+      return children.flatMap((child) => distanceParts(bk, child));
     }
-    return [0, 0, 0];
-  };
-  const p1 = getPos(h1);
-  const p2 = getPos(h2);
-  const dx = p2[0] - p1[0];
-  const dy = p2[1] - p1[1];
-  const dz = p2[2] - p1[2];
-  return { value: Math.sqrt(dx * dx + dy * dy + dz * dz), point1: p1, point2: p2 };
+    default:
+      return [h];
+  }
+}
+
+function partDistance(bk: BrepkitKernel, a: BrepkitHandle, b: BrepkitHandle): DistanceResult {
+  if (a.type === 'solid' && b.type === 'solid') {
+    const buf = bk.solidToSolidDistance(a.id, b.id);
+    return { value: wasmIndex(buf, 0), point1: vec3At(buf, 1), point2: vec3At(buf, 4) };
+  }
+  if (a.type === 'vertex') return pointDistance(bk, a, b);
+  if (b.type === 'vertex') {
+    const d = pointDistance(bk, b, a);
+    return { value: d.value, point1: d.point2, point2: d.point1 };
+  }
+  throw new UnsupportedKernelOperationError(
+    `brepkit: no distance between a ${a.type} and a ${b.type}; brepkit-wasm measures from a point to a solid, face or edge, and between two solids`
+  );
+}
+
+function pointDistance(bk: BrepkitKernel, v: BrepkitHandle, to: BrepkitHandle): DistanceResult {
+  const point1 = vec3At(bk.getVertexPosition(v.id));
+  if (to.type === 'vertex') {
+    const point2 = vec3At(bk.getVertexPosition(to.id));
+    const value = Math.hypot(point2[0] - point1[0], point2[1] - point1[1], point2[2] - point1[2]);
+    return { value, point1, point2 };
+  }
+  const [x, y, z] = point1;
+  let result: Float64Array;
+  if (to.type === 'solid') result = bk.pointToSolidDistance(x, y, z, to.id);
+  else if (to.type === 'face') result = bk.pointToFaceDistance(x, y, z, to.id);
+  else if (to.type === 'edge') result = bk.pointToEdgeDistance(x, y, z, to.id);
+  else {
+    throw new UnsupportedKernelOperationError(`brepkit: no distance from a vertex to a ${to.type}`);
+  }
+  return { value: wasmIndex(result, 0), point1, point2: vec3At(result, 1) };
 }
 
 export function surfaceCurvature(

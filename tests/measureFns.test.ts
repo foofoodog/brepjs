@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { initKernel } from './setup.js';
-import { isBrepkit, shouldSkipSuite } from './helpers/kernelDivergences.js';
+import { isBrepkit, shouldSkipSuite, skipIfDiverges } from './helpers/kernelDivergences.js';
 import {
   box,
   sphere,
@@ -28,8 +28,29 @@ import {
   createFace,
   unwrap,
   isErr,
+  cone,
+  circle,
+  wire,
+  closedWire,
+  face,
+  compound,
+  faceCenter,
+  getSurfaceType,
+  isPlanarWire,
+  isShape3D,
+  getBounds,
+  checkInterference,
+  unwrapErr,
+  registerKernel,
+  withKernel,
 } from '@/index.js';
-import type { Shape3D, Face } from '@/index.js';
+import { UnsupportedKernelOperationError } from '@/kernel/unsupported.js';
+import type { AnyShape, Dimension, Shape3D, Face, OrientedFace, Result } from '@/index.js';
+
+function shape3D(shape: AnyShape<Dimension>): Shape3D {
+  if (!isShape3D(shape)) throw new Error('expected a 3D shape');
+  return shape;
+}
 
 describe('measureFns', () => {
   beforeAll(async () => {
@@ -39,12 +60,15 @@ describe('measureFns', () => {
   describe('measureVolume', () => {
     it('box volume', () => {
       const b = box(10, 20, 30);
-      expect(unwrap(measureVolume(castShape(b.wrapped)))).toBeCloseTo(6000, 0);
+      expect(unwrap(measureVolume(shape3D(castShape(b.wrapped))))).toBeCloseTo(6000, 0);
     });
 
     it('sphere volume', () => {
       const s = sphere(5);
-      expect(unwrap(measureVolume(castShape(s.wrapped)))).toBeCloseTo((4 / 3) * Math.PI * 125, 0);
+      expect(unwrap(measureVolume(shape3D(castShape(s.wrapped))))).toBeCloseTo(
+        (4 / 3) * Math.PI * 125,
+        0
+      );
     });
 
     it('returns 0 for a non-solid shape, e.g. a shell (#1361)', () => {
@@ -62,7 +86,7 @@ describe('measureFns', () => {
   describe('measureArea', () => {
     it('box surface area', () => {
       const b = box(10, 20, 30);
-      expect(unwrap(measureArea(castShape(b.wrapped)))).toBeCloseTo(2200, 0);
+      expect(unwrap(measureArea(shape3D(castShape(b.wrapped))))).toBeCloseTo(2200, 0);
     });
 
     it.skipIf(shouldSkipSuite('measureFns.analyticFaceMeasurement'))('face area', () => {
@@ -97,6 +121,110 @@ describe('measureFns', () => {
       const b2 = castShape(translate(box(5, 5, 5), [10, 0, 0]).wrapped);
       expect(unwrap(measureDistance(b1, b2))).toBeCloseTo(5, 2);
     });
+
+    it('measures a vertex against a face, an edge or a solid in either order', () => {
+      using b = box(40, 30, 20);
+      using v = vertex([0, 0, 10]);
+      const side = getFaces(b).find((f) => getBounds(f).xMin > 39.9);
+      if (!side) throw new Error('box has no x = 40 face');
+      for (const [p, q] of [
+        [v, side],
+        [side, v],
+      ] as const) {
+        const d = unwrap(measureDistanceProps(p, q));
+        expect(d.distance).toBeCloseTo(40, 6);
+        const onFace = p === side ? d.point1 : d.point2;
+        expect(onFace[0]).toBeCloseTo(40, 6);
+      }
+      using far = vertex([0, 0, 60]);
+      expect(unwrap(measureDistance(b, far))).toBeCloseTo(40, 6);
+    });
+
+    it('measures a compound of solids by its closest solid', () => {
+      using cube = box(10, 10, 10);
+      using near = translate(cube, [0, 0, 30]);
+      using farther = translate(cube, [0, 0, 60]);
+      using pair = compound([near, farther]);
+      using b = box(40, 30, 20);
+      expect(unwrap(measureDistance(pair, b))).toBeCloseTo(10, 6);
+    });
+
+    it('measures between faces', (ctx) => {
+      skipIfDiverges(ctx, 'measureFns.faceDistance');
+      using b = box(40, 30, 20);
+      const top = getFaces(b).find((f) => getBounds(f).zMin > 19.9);
+      const bottom = getFaces(b).find((f) => getBounds(f).zMax < 0.1);
+      if (!top || !bottom) throw new Error('box faces not found');
+      expect(unwrap(measureDistance(top, bottom))).toBeCloseTo(20, 6);
+      using cube = box(10, 10, 10);
+      using above = translate(cube, [0, 0, 50]);
+      expect(unwrap(measureDistance(top, above))).toBeCloseTo(30, 6);
+    });
+
+    it('returns UNSUPPORTED_CAPABILITY when the kernel cannot measure the pair', () => {
+      const unsupported = () => {
+        throw new UnsupportedKernelOperationError('stub: no distance for this pair');
+      };
+      const base = getKernel();
+      registerKernel(
+        'no-distance',
+        new Proxy(base, {
+          get(target, prop) {
+            if (prop === 'distance') return unsupported;
+            if (prop === 'createDistanceQuery') {
+              return () => ({ distanceTo: unsupported, dispose: () => {} });
+            }
+            const value: unknown = Reflect.get(target, prop, target);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        })
+      );
+      using a = box(10, 10, 10);
+      using b = translate(a, [20, 0, 0]);
+      const results: Array<Result<unknown>> = withKernel('no-distance', () => {
+        const query = unwrap(createDistanceQuery(a));
+        const viaQuery = query.distanceTo(b);
+        query.dispose();
+        return [
+          measureDistance(a, b),
+          measureDistanceProps(a, b),
+          checkInterference(a, b),
+          viaQuery,
+        ];
+      });
+      for (const result of results) {
+        const error = unwrapErr(result);
+        expect(error.code).toBe('UNSUPPORTED_CAPABILITY');
+        expect(error.message).toContain('stub: no distance for this pair');
+      }
+    });
+
+    // Runs only where measureFns.faceDistance is a registered divergence (brepkit).
+    it.skipIf(!shouldSkipSuite('measureFns.faceDistance'))(
+      'returns UNSUPPORTED_CAPABILITY for a pair it cannot measure, not a stand-in value',
+      () => {
+        using b = box(40, 30, 20);
+        const top = getFaces(b).find((f) => getBounds(f).zMin > 19.9);
+        const bottom = getFaces(b).find((f) => getBounds(f).zMax < 0.1);
+        if (!top || !bottom) throw new Error('box faces not found');
+        using cube = box(10, 10, 10);
+        using above = translate(cube, [0, 0, 50]);
+        const query = unwrap(createDistanceQuery(top));
+        const viaQuery = query.distanceTo(bottom);
+        query.dispose();
+        const results: Array<Result<unknown>> = [
+          measureDistance(top, bottom),
+          measureDistanceProps(top, above),
+          checkInterference(top, bottom),
+          viaQuery,
+        ];
+        for (const result of results) {
+          const error = unwrapErr(result);
+          expect(error.kind).toBe('UNSUPPORTED');
+          expect(error.code).toBe('UNSUPPORTED_CAPABILITY');
+        }
+      }
+    );
   });
 
   describe('createDistanceQuery', () => {
@@ -117,7 +245,7 @@ describe('measureFns', () => {
   describe('measureVolumeProps / measureSurfaceProps / measureLinearProps', () => {
     it('volume props include mass and centerOfMass', () => {
       const b = box(10, 10, 10);
-      const props = unwrap(measureVolumeProps(castShape(b.wrapped)));
+      const props = unwrap(measureVolumeProps(shape3D(castShape(b.wrapped))));
       expect(props.mass).toBeCloseTo(1000, 0);
       expect(props.centerOfMass[0]).toBeCloseTo(5, 0);
       expect(props.centerOfMass[1]).toBeCloseTo(5, 0);
@@ -126,7 +254,7 @@ describe('measureFns', () => {
 
     it('surface props include mass and centerOfMass', () => {
       const b = box(10, 10, 10);
-      const props = unwrap(measureSurfaceProps(castShape(b.wrapped)));
+      const props = unwrap(measureSurfaceProps(shape3D(castShape(b.wrapped))));
       expect(props.mass).toBeCloseTo(600, 0);
       expect(props.centerOfMass[0]).toBeCloseTo(5, 0);
     });
@@ -135,6 +263,79 @@ describe('measureFns', () => {
       const l = line([0, 0, 0], [10, 0, 0]);
       const props = unwrap(measureLinearProps(castShape(l.wrapped)));
       expect(props.mass).toBeCloseTo(10, 2);
+    });
+
+    it("surface center of mass of a face is the face's centroid", () => {
+      using b = box(10, 20, 30);
+      const top = getFaces(b).find((f) => faceCenter(f)[2] > 29);
+      if (!top) throw new Error('box has no top face');
+      const com = unwrap(measureSurfaceProps(top)).centerOfMass;
+      expect(com[0]).toBeCloseTo(5, 6);
+      expect(com[1]).toBeCloseTo(10, 6);
+      expect(com[2]).toBeCloseTo(30, 6);
+    });
+
+    it('surface center of mass of a solid weights its faces by area', () => {
+      // Cone r=3, h=4 (slant 5): base disc 9pi at z=0, lateral 15pi with its
+      // centroid at h/3, so the surface centroid is at z = 15pi*(4/3)/24pi = 5/6.
+      // The volume centroid would be h/4 = 1.
+      using c = cone(3, 0, 4);
+      const com = unwrap(measureSurfaceProps(c)).centerOfMass;
+      expect(com[0]).toBeCloseTo(0, 6);
+      expect(com[1]).toBeCloseTo(0, 6);
+      expect(com[2]).toBeCloseTo(5 / 6, 6);
+    });
+
+    it('length of a solid counts each edge once', () => {
+      using b = box(10, 10, 10);
+      const props = unwrap(measureLinearProps(b));
+      expect(props.length).toBeCloseTo(120, 6);
+      expect(props.centerOfMass[0]).toBeCloseTo(5, 6);
+      expect(props.centerOfMass[1]).toBeCloseTo(5, 6);
+      expect(props.centerOfMass[2]).toBeCloseTo(5, 6);
+      const f = getFaces(b)[0];
+      if (!f) throw new Error('box has no faces');
+      expect(unwrap(measureLength(f))).toBeCloseTo(40, 6);
+    });
+
+    it('length of a face counts its seam edge once', () => {
+      // Cylinder r=5, h=10: the lateral face is bounded by two circles (10pi each)
+      // and one seam line (10) that its wire runs along twice, once each way.
+      using c = cylinder(5, 10);
+      const lateral = getFaces(c).find((f) => unwrap(getSurfaceType(f)) === 'CYLINDRE');
+      if (!lateral) throw new Error('cylinder has no lateral face');
+      const props = unwrap(measureLinearProps(lateral));
+      expect(props.length).toBeCloseTo(20 * Math.PI + 10, 6);
+      expect(props.centerOfMass[2]).toBeCloseTo(5, 6);
+      expect(unwrap(measureLength(c))).toBeCloseTo(20 * Math.PI + 10, 6);
+
+      // Sphere r=5: the half-meridian seam (5pi) is the face's only edge with
+      // length; the poles are degenerate edges.
+      using s = sphere(5);
+      const skin = getFaces(s)[0];
+      if (!skin) throw new Error('sphere has no faces');
+      expect(unwrap(measureLength(skin))).toBeCloseTo(5 * Math.PI, 6);
+    });
+
+    it('volume of a compound counts only its solids', () => {
+      using b = box(10, 10, 10);
+      const discWire = unwrap(closedWire(unwrap(wire([circle(5, { at: [0, 0, 50] })]))));
+      if (!isPlanarWire(discWire)) throw new Error('profile is not planar');
+      using disc = unwrap(face(discWire));
+      using mixed = compound([b, disc]);
+      const props = unwrap(measureVolumeProps(mixed));
+      expect(props.volume).toBeCloseTo(1000, 6);
+      expect(props.centerOfMass[0]).toBeCloseTo(5, 6);
+      expect(props.centerOfMass[1]).toBeCloseTo(5, 6);
+      expect(props.centerOfMass[2]).toBeCloseTo(5, 6);
+    });
+
+    it('volume of a compound without solids is zero', () => {
+      const discWire = unwrap(closedWire(unwrap(wire([circle(5)]))));
+      if (!isPlanarWire(discWire)) throw new Error('profile is not planar');
+      using disc = unwrap(face(discWire));
+      using onlyFace = compound([disc]);
+      expect(unwrap(measureVolume(onlyFace))).toBe(0);
     });
   });
 
@@ -204,7 +405,7 @@ describe('measureFns', () => {
       });
 
       it('measureCurvatureAt returns Err on null face', () => {
-        expect(isErr(measureCurvatureAt(makeNullFace(), 0, 0))).toBe(true);
+        expect(isErr(measureCurvatureAt(makeNullFace() as OrientedFace, 0, 0))).toBe(true);
       });
 
       it('measureCurvatureAtMid returns Err on null face', () => {

@@ -45,12 +45,14 @@ A door in a wall is not a boolean subtraction that happens to look right. The mo
 
 ## Current scope, stated plainly
 
-The IFC projection today maps **storeys, walls, slabs, doors, windows, columns, beams, roofs, and stairs** (columns and beams in rectangular, circular, and I-shape profiles; roofs flat or pitched as shed / gable / hip / dome; stairs as multi-flight assemblies; openings, property sets, and materials throughout). The remaining `brepjs-bim` catalog (curtain walls, ramps, railings, spaces, foundations, coverings) exists in the underlying library and is reachable through the direct `BimModel` API. If your models are mostly walls-slabs-openings (residential, fit-out, early massing for data), the pipeline is complete; if you need the full structural catalog through this declarative surface, that mapping work is visible on the project roadmap.
+The IFC projection today maps **storeys, walls, slabs, doors, windows, columns, beams, roofs, stairs, ramps, railings, curtain walls, spaces, footings, piles, and coverings** (columns and beams in rectangular, circular, and I-shape profiles; roofs flat or pitched as shed / gable / hip / dome; stairs and ramps as multi-flight assemblies; openings, property sets, and materials throughout). Openings in this projection are wall-only; slab openings, zones, systems, and element assemblies are reachable through the direct `BimModel` API.
 
 This is also not a Revit or ArchiCAD replacement. There is no drawing sheet, no annotation, no GUI authoring. It is a **programmatic model pipeline**: configurators, generative studies, firm-standard component libraries, and automated IFC production feeding the tools you already use.
 
 ## Working with your developers
 
 The rest of this section is written for the people who will build with this. If you hand it to a developer, the ask that captures what this page promises is short: _components from our standards registry, every element keyed, exported with `toIfcValidated`, IfcOpenShell in CI._ Start them at [Why a Family Layer](/families/overview); the identity rules they must not weaken are in [Elements, Key Paths & Identity](/families/identity), and the export contract is in [IFC Export](/families/ifc-export).
+
+If your team works with an AI agent, [BIM over MCP](/agent/bim-mcp) is how it opens a model, checks each edit, and exports IFC from inside a session.
 
 For your side of the collaboration, [Copy-In Distribution](/families/copy-in) shows how a firm-standards registry is hosted and consumed: the closest analogy is a shared template library, except updates arrive as reviewable diffs instead of file replacements.

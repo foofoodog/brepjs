@@ -82,10 +82,10 @@ graph TB
 
 No internal imports allowed.
 
-| Module    | Purpose                                                                                                                           |
-| --------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `kernel/` | Kernel adapter interface + adapters for OpenCascade (`brepjs-opencascade`), brepkit (`brepkit-wasm`), and occt-wasm (`occt-wasm`) |
-| `utils/`  | Pure utilities (no dependencies)                                                                                                  |
+| Module    | Purpose                                                                                                                                                   |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kernel/` | Kernel adapter interface + adapters for occt-wasm (`occt-wasm`, the default), brepkit (`brepkit-wasm`), and the deprecated opencascade.js build (`occt/`) |
+| `utils/`  | Pure utilities (no dependencies)                                                                                                                          |
 
 ### Layer 1: Core
 
@@ -101,7 +101,7 @@ Imports layers 0-1 and each other.
 
 | Module         | Purpose                                                   |
 | -------------- | --------------------------------------------------------- |
-| `topology/`    | Shape classes, boolean operations, casting                |
+| `topology/`    | Shape functions, boolean operations, casting              |
 | `operations/`  | Extrusion, loft, sweep, batch operations                  |
 | `2d/`          | Blueprints, curves, 2D operations                         |
 | `query/`       | Shape finders (face, edge, corner)                        |
@@ -185,8 +185,8 @@ type ClosedWire<D> = Wire<D> & { readonly [__closed]: true };
 type OrientedFace<D> = Face<D> & { readonly [__oriented]: true };
 type ValidSolid = Solid & { readonly [__valid]: true };
 
-// face() requires ClosedWire - passing a plain Wire is a compile error
-function face(wire: ClosedWire): Result<OrientedFace>;
+// face() requires a closed, planar wire - passing a plain Wire is a compile error
+function face(wire: ClosedWire & PlanarWire): Result<OrientedFace & PlanarFace>;
 ```
 
 See [B-Rep Concepts](./concepts.md#validity-types) for usage patterns.

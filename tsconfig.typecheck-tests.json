@@ -1,0 +1,23 @@
+// Type-checks tests/ (CI typecheck job and pre-commit). Files under "exclude" after
+// node_modules and dist still had type errors when this gate was added: fix one and
+// delete its line. Don't add new entries.
+{
+  "extends": "./tsconfig.tests.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "types": ["vitest/globals", "node"]
+  },
+  "include": ["tests/**/*.ts", "src/**/*.ts", "apps/playground/src/vite-env.d.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    // Generated from the docs by docs:extract-tests and gitignored; CI's docs job runs it.
+    "tests/docs/extracted.test.ts",
+    // These import brepjs-bim, -sheetmetal, and -families, whose types come from builds
+    // that the CI typecheck job doesn't run (vitest aliases them to src instead).
+    "tests/helpers/playgroundExampleEval.ts",
+    "tests/playgroundExamples.test.ts",
+    "tests/playgroundAutoRefresh.test.ts",
+    "tests/validateCandidate.test.ts"
+  ]
+}

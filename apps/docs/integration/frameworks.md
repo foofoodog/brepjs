@@ -34,15 +34,23 @@ console.log('Triangles:', geo.index.length / 3);
 
 ### The `?url` import for workers
 
-When you instantiate a worker that loads brepjs, you typically want to give the worker an explicit URL to the WASM rather than relying on relative paths. This is what gridfinity-layout-tool does:
+When you instantiate a worker that loads brepjs, you can give it an explicit URL to the WASM rather than relying on relative paths:
 
 <!-- @no-test -->
 
 ```typescript
-import singleWasm from 'brepjs-opencascade/src/brepjs_single.wasm?url';
+import occtWasmUrl from 'occt-wasm/dist/occt-wasm.wasm?url';
+import { OcctKernel } from 'occt-wasm';
+import { registerKernel, OcctWasmAdapter } from 'brepjs';
+
+// No top-level await: Vite builds workers as iife by default, which doesn't allow it.
+const ready = OcctKernel.init({ wasm: occtWasmUrl }).then((kernel) => {
+  registerKernel('occt-wasm', OcctWasmAdapter.fromKernel(kernel));
+});
+// await ready before building shapes
 ```
 
-Vite emits the file as a static asset, returns its URL, and you pass that URL to the OpenCascade init. This makes worker-side initialisation explicit and bundler-portable.
+Vite emits the file as a static asset, returns its URL, and you pass that URL to `OcctKernel.init`. This makes worker-side initialisation explicit and bundler-portable.
 
 ## Next.js
 
@@ -219,8 +227,8 @@ For routes that should never SSR-render the brepjs component at all, factor the 
 brepjs is just WASM + JS: these runtimes work for batch jobs (build a STEP file, return it as a response). The constraints:
 
 - **No DOM**: anything assuming `window`, `document`, or browser globals fails. brepjs's core doesn't use these, but the playground site does.
-- **Memory limits**: workers have caps (Cloudflare: 128 MB by default). Heavy operations may need bumping.
-- **Bundle size**: WASM is ~3 MB compressed. Cloudflare's bundle budget allows this; some embedded runtimes don't.
+- **Memory limits**: workers have caps (Cloudflare: 128 MB per isolate on every plan). Heavy operations may not fit.
+- **Bundle size**: WASM is ~6.7 MB compressed (the default `occt-wasm` kernel). Cloudflare's bundle budget allows this; some embedded runtimes don't.
 
 For server-side STEP generation in Cloudflare:
 

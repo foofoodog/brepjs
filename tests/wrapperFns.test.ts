@@ -37,6 +37,12 @@ beforeAll(async () => {
   await initKernel();
 }, 30000);
 
+function first<T>(items: readonly T[]): T {
+  const [item] = items;
+  if (item === undefined) throw new Error('expected at least one item');
+  return item;
+}
+
 // ---------------------------------------------------------------------------
 // shape() factory
 // ---------------------------------------------------------------------------
@@ -480,12 +486,12 @@ describe('Wrapped applyMatrix', () => {
 
 describe('wrapAny dispatch branches', () => {
   it('apply() returning a Face dispatches to WrappedFace', () => {
-    const wrapped = shape(box(10, 10, 10)).apply((s) => getFaces(s)[0]);
+    const wrapped = shape(box(10, 10, 10)).apply((s) => first(getFaces(s)));
     expect(typeof wrapped.area).toBe('function');
   });
 
   it('apply() returning an Edge dispatches to WrappedCurve', () => {
-    const wrapped = shape(box(10, 10, 10)).apply((s) => getEdges(s)[0]);
+    const wrapped = shape(box(10, 10, 10)).apply((s) => first(getEdges(s)));
     expect(typeof wrapped.length).toBe('function');
   });
 });
@@ -497,7 +503,7 @@ describe('wrapAny dispatch branches', () => {
 describe('shape() factory edge cases', () => {
   it('wraps a Vertex into base Wrapped', () => {
     const verts = getVertices(box(10, 10, 10));
-    const wrapped = shape(verts[0]);
+    const wrapped = shape(first(verts));
     expect(wrapped.val).toBeDefined();
     expect(wrapped.__wrapped).toBe(true);
   });
@@ -722,7 +728,7 @@ describe('WrappedFace: additional methods', () => {
     const s = sphere(5);
     const faces = shape(s).faces();
     // Sphere face has a spherical surface
-    const f = shape(faces[0]);
+    const f = shape(first(faces));
     const st = f.surfaceType();
     expect(typeof st).toBe('string');
     expect(st.length).toBeGreaterThan(0);
@@ -744,7 +750,7 @@ describe('WrappedFace: additional methods', () => {
     // Already tested above, but let's verify it works with sphere face too
     const s = sphere(5);
     const faces = shape(s).faces();
-    const f = shape(faces[0]);
+    const f = shape(first(faces));
     // sphere faces have outer wires
     expect(f.outerWire()).toBeDefined();
   });

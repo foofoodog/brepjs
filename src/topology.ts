@@ -3,7 +3,7 @@
  *
  * @example
  * ```typescript
- * import { box, fuse, fillet, mesh } from 'brepjs/topology';
+ * import { box, fuseAll, variableFillet } from 'brepjs/topology';
  * ```
  */
 
@@ -138,6 +138,7 @@ export {
   outerWire,
   innerWires,
   projectPointOnFace,
+  type SurfaceType,
   type UVBounds,
   type PointProjectionResult,
 } from './topology/faceFns.js';

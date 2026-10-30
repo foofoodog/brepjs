@@ -3,7 +3,8 @@ import { makeCompound } from '@/topology/shapeHelpers.js';
 import type { ExtrusionProfile, SweepOptions } from '@/operations/extrudeUtils.js';
 import type { LoftOptions } from '@/operations/loftFns.js';
 import type { Plane } from '@/core/planeTypes.js';
-import type { Compound, Face, Shape3D } from '@/core/shapeTypes.js';
+import type { Compound, OrientedFace, Shape3D } from '@/core/shapeTypes.js';
+import type { PlanarFace } from '@/core/validityTypes.js';
 import { bug } from '@/core/errors.js';
 import { firstOrThrow } from '@/utils/arrayAccess.js';
 
@@ -44,8 +45,13 @@ export default class Sketches implements SketchInterface {
     return only;
   }
 
+  /** Release the kernel resources of every contained sketch. */
+  delete(): void {
+    for (const s of this.sketches) s.delete();
+  }
+
   /** Build a face from the sole contained profile (see {@link Sketches.faces}). */
-  face(): Face {
+  face(): OrientedFace & PlanarFace {
     if (this.sketches.length !== 1)
       bug('Sketches.face', 'Multiple profiles — use faces() to combine them.');
     return firstOrThrow(this.sketches).face();
@@ -111,8 +117,7 @@ export default class Sketches implements SketchInterface {
     } = {}
   ): Compound {
     const extruded = this.sketches.map((s) => s.extrude(extrusionDistance, extrusionConfig));
-
-    return makeCompound(extruded);
+    return this.consumeInto(extruded);
   }
 
   /**
@@ -120,6 +125,18 @@ export default class Sketches implements SketchInterface {
    * (defaults to the sketch origin)
    */
   revolve(revolutionAxis?: PointInput, config?: { origin?: PointInput }): Compound {
-    return makeCompound(this.sketches.map((s) => s.revolve(revolutionAxis, config)));
+    return this.consumeInto(this.sketches.map((s) => s.revolve(revolutionAxis, config)));
+  }
+
+  /**
+   * Combine per-profile results into one compound (which holds its own references) and
+   * release what the profiles leave behind: a `Sketch` deletes itself when extruded or
+   * revolved, but a `CompoundSketch` leaves its wires to the caller.
+   */
+  private consumeInto(parts: Shape3D[]): Compound {
+    const compound = makeCompound(parts);
+    for (const part of parts) part[Symbol.dispose]();
+    for (const s of this.sketches) if (!(s instanceof Sketch)) s.delete();
+    return compound;
   }
 }

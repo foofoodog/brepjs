@@ -1,5 +1,138 @@
 # Changelog
 
+## [0.192.3](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.192.2...brepjs-cad-v0.192.3) (2026-10-30)
+
+
+### Bug Fixes
+
+* **io:** keep every part of a model through STEP, IGES, and STL ([#2560](https://github.com/andymai/brepjs/issues/2560)) ([b0beb86](https://github.com/andymai/brepjs/commit/b0beb86e1015198f79e1bf042b5d9df46cc07811))
+
+## [0.192.2](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.192.1...brepjs-cad-v0.192.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* **io:** import STL, OBJ, 3MF, and SVG as the shapes they describe ([5a4724a](https://github.com/andymai/brepjs/commit/5a4724a6618648d83cc41bf12d910894042bbf2e))
+
+## [0.192.1](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.192.0...brepjs-cad-v0.192.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **brepjs-cad:** make verify fail loud on parts it can't check ([cbb98b7](https://github.com/andymai/brepjs/commit/cbb98b77f03e039cc15c94a2e3fc9667ab1f799c))
+
+## [0.192.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.191.3...brepjs-cad-v0.192.0) (2026-10-29)
+
+
+### Features
+
+* **brepjs-cad:** add a Claude Code CLI eval and publish its first results ([#2494](https://github.com/andymai/brepjs/issues/2494)) ([f30e88e](https://github.com/andymai/brepjs/commit/f30e88ebcec3ecdffa6a37ba34bdf3a0a824b9fe))
+
+## [0.191.3](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.191.2...brepjs-cad-v0.191.3) (2026-10-28)
+
+
+### Bug Fixes
+
+* **brepjs-cad:** don't report an empty preview as valid ([#2491](https://github.com/andymai/brepjs/issues/2491)) ([4d2885a](https://github.com/andymai/brepjs/commit/4d2885a5658dd733a3817587919c6b209af4d2fb))
+
+## [0.191.2](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.191.1...brepjs-cad-v0.191.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **brepjs-cad:** share the project's brepjs with parts when run via npx ([#2486](https://github.com/andymai/brepjs/issues/2486)) ([29f137a](https://github.com/andymai/brepjs/commit/29f137a96ef879450c0f1f30989de94d0f5f5d25))
+
+## [0.191.1](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.191.0...brepjs-cad-v0.191.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **viewer:** fit the perspective camera to the FOV, not a fixed 3x radius ([#2482](https://github.com/andymai/brepjs/issues/2482)) ([2672585](https://github.com/andymai/brepjs/commit/2672585e6a028529c5e43a46470991b71816deef))
+
+## [0.191.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.190.0...brepjs-cad-v0.191.0) (2026-10-28)
+
+
+### Features
+
+* **text:** add setFallbackFont; brep engraves text without a font file ([#2480](https://github.com/andymai/brepjs/issues/2480)) ([cf05f21](https://github.com/andymai/brepjs/commit/cf05f2190741aac5bf7b737ee7f62a675b4b63af))
+
+
+### Bug Fixes
+
+* **api:** return INVALID_EDGE_SELECTION when fillet/chamfer args are swapped ([#2479](https://github.com/andymai/brepjs/issues/2479)) ([5547be6](https://github.com/andymai/brepjs/commit/5547be6c80e4e28a2029256d483996b45ea415fc))
+* **brepjs-cad:** drop the OCCT STEP transfer banner from brep stderr ([#2481](https://github.com/andymai/brepjs/issues/2481)) ([08a33ef](https://github.com/andymai/brepjs/commit/08a33ef632245cb1d8a641787ffa8c58d0587747))
+
+## [0.190.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.189.0...brepjs-cad-v0.190.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** show BIM sessions in a live viewer the agent can drive ([#2467](https://github.com/andymai/brepjs/issues/2467)) ([1ace91e](https://github.com/andymai/brepjs/commit/1ace91e7b40ef51d4afa342d4f225824e77e7792))
+
+## [0.189.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.188.0...brepjs-cad-v0.189.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** draw plans and sections, measure spaces, export COBie ([#2466](https://github.com/andymai/brepjs/issues/2466)) ([65e6305](https://github.com/andymai/brepjs/commit/65e63055c34ce8f36ef4dbe6511d09edb4187e27))
+
+## [0.188.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.187.0...brepjs-cad-v0.188.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** raise and read BCF issues on BIM sessions ([#2464](https://github.com/andymai/brepjs/issues/2464)) ([e838078](https://github.com/andymai/brepjs/commit/e83807854bfb44abe411879f691f07b5b2f7a07b))
+
+## [0.187.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.186.0...brepjs-cad-v0.187.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** schedule BIM session elements ([#2459](https://github.com/andymai/brepjs/issues/2459)) ([7fc3e97](https://github.com/andymai/brepjs/commit/7fc3e97f0c9efa54b22684ab15331ac2d31bab6d))
+* **brepjs-cad:** validate BIM sessions and compare revisions ([#2460](https://github.com/andymai/brepjs/issues/2460)) ([0907174](https://github.com/andymai/brepjs/commit/09071741a703a88884fe8a1239bfe0de80c6eba2))
+
+## [0.186.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.185.0...brepjs-cad-v0.186.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** tell agents which line authors each element ([#2456](https://github.com/andymai/brepjs/issues/2456)) ([5a655b6](https://github.com/andymai/brepjs/commit/5a655b68912c887a694e4bea20d6a6dff246fb7e))
+
+## [0.185.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.184.0...brepjs-cad-v0.185.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** run agent code in a session with eval_in_session ([#2454](https://github.com/andymai/brepjs/issues/2454)) ([882011a](https://github.com/andymai/brepjs/commit/882011acc9b2c4017217fd5e1fbb1a3cfec8a3e3))
+
+## [0.184.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.183.0...brepjs-cad-v0.184.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** search the bundled reference and add BIM prompts ([#2452](https://github.com/andymai/brepjs/issues/2452)) ([c53d99c](https://github.com/andymai/brepjs/commit/c53d99c89743916d0b298795d5403d7e32a84721))
+
+## [0.183.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.182.0...brepjs-cad-v0.183.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** export BIM sessions to IFC with export_ifc ([#2450](https://github.com/andymai/brepjs/issues/2450)) ([0e60b39](https://github.com/andymai/brepjs/commit/0e60b39eae104fc7d774899ef8bd5283c4241891))
+
+## [0.182.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.181.0...brepjs-cad-v0.182.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** render BIM sessions with render_view ([#2448](https://github.com/andymai/brepjs/issues/2448)) ([68872a4](https://github.com/andymai/brepjs/commit/68872a45df05b0c2ecda8fc9658fa5edcc5dab21))
+
+## [0.181.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.180.0...brepjs-cad-v0.181.0) (2026-10-27)
+
+
+### Features
+
+* **brepjs-cad:** add BIM session tools to brep-mcp ([#2443](https://github.com/andymai/brepjs/issues/2443)) ([f4865b0](https://github.com/andymai/brepjs/commit/f4865b059d61b7fc9147867477ff7a6c00cf1ac5))
+
 ## [0.180.0](https://github.com/andymai/brepjs/compare/brepjs-cad-v0.179.0...brepjs-cad-v0.180.0) (2026-10-23)
 
 

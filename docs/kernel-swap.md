@@ -1,9 +1,8 @@
 # Custom Kernel Guide
 
-brepjs is kernel-agnostic. All geometry operations go through a `KernelAdapter` interface. Three adapters are provided:
+brepjs is kernel-agnostic. All geometry operations go through a `KernelAdapter` interface. Two adapters are provided:
 
 - **occt-wasm** (via `occt-wasm`), the default kernel: arena-based OCCT V8 compiled to WASM with a handle-based memory model
-- **OpenCascade WASM** (via `brepjs-opencascade`), the legacy OpenCascade build; mature, still supported as an alternative
 - **brepkit WASM** (via `brepkit-wasm`), alternative kernel with growing coverage
 
 You can also register your own kernel at runtime.
@@ -13,7 +12,7 @@ You can also register your own kernel at runtime.
 ```typescript
 // Easiest: auto-detect and initialize the best available kernel
 import { init, box } from 'brepjs';
-await init(); // tries occt-wasm (default), then brepjs-opencascade, then brepkit-wasm
+await init(); // tries occt-wasm (default), then brepkit-wasm
 const myBox = box(10, 10, 10);
 ```
 
@@ -21,7 +20,7 @@ const myBox = box(10, 10, 10);
 
 ```typescript
 import { OcctKernel } from 'occt-wasm';
-import { registerKernel, withKernel, OcctWasmAdapter, BrepkitAdapter } from 'brepjs';
+import { registerKernel, withKernel, OcctWasmAdapter, BrepkitAdapter, box } from 'brepjs';
 
 // Initialize the default occt-wasm kernel
 const kernel = await OcctKernel.init();
@@ -31,15 +30,9 @@ registerKernel('occt-wasm', OcctWasmAdapter.fromKernel(kernel));
 import { BrepKernel } from 'brepkit-wasm';
 registerKernel('brepkit', new BrepkitAdapter(new BrepKernel()));
 
-// Register the legacy brepjs-opencascade kernel as an alternative
-import opencascade from 'brepjs-opencascade';
-import { initFromOC } from 'brepjs';
-const oc = await opencascade();
-initFromOC(oc);
-
 // Run a specific kernel temporarily
 const result = withKernel('brepkit', () => {
-  return makeBox(10, 10, 10); // uses brepkit kernel
+  return box(10, 10, 10); // uses brepkit kernel
 });
 
 // Or register a fully custom kernel
@@ -54,11 +47,7 @@ Register a `KernelAdapter` under a unique string ID. The first kernel registered
 
 ### `init()`
 
-Auto-detect and initialize the best available kernel. Tries `occt-wasm` (the default kernel) first, then falls back to `brepjs-opencascade`, then `brepkit-wasm`. Returns a `Promise<string>` with the kernel ID (`'occt-wasm'`, `'occt'`, or `'brepkit'`). Idempotent: calling it again after a kernel is registered returns the current kernel ID immediately.
-
-### `initFromOC(oc)`
-
-Manual initialization: creates the OpenCascade adapter from a loaded `brepjs-opencascade` WASM instance and registers it as `'occt'` (the alternative kernel; the default is `occt-wasm`).
+Auto-detect and initialize the best available kernel. Tries `occt-wasm` (the default kernel) first, then `brepkit-wasm`. Returns a `Promise<string>` with the kernel ID (`'occt-wasm'` or `'brepkit'`). Idempotent: calling it again after a kernel is registered returns the current kernel ID immediately.
 
 ### `BrepkitAdapter`
 
@@ -110,7 +99,7 @@ Returns the kernel adapter for the given ID, or the default kernel. Used interna
 
 ## Writing a KernelAdapter
 
-The `KernelAdapter` interface (`src/kernel/types.ts`) defines ~164 methods across these categories:
+The `KernelAdapter` interface (`src/kernel/types.ts`) defines ~280 members across these categories:
 
 | Category           | Methods | Examples                                                      |
 | ------------------ | ------- | ------------------------------------------------------------- |
@@ -125,12 +114,14 @@ The `KernelAdapter` interface (`src/kernel/types.ts`) defines ~164 methods acros
 | Meshing            | 2       | `mesh`, `meshEdges`                                           |
 | Lifecycle          | 1       | `dispose`                                                     |
 
-There is also an optional `Kernel2DCapability` interface (~40 methods) for 2D sketching operations.
+There is also an optional `Kernel2DCapability` interface (~60 methods) for 2D sketching operations.
 
 ### Minimal Skeleton
 
 ```typescript
-import type { KernelAdapter, KernelShape, ShapeType } from 'brepjs';
+import type { KernelAdapter, ShapeType } from 'brepjs';
+
+type KernelShape = Parameters<KernelAdapter['volume']>[0]; // not exported from the brepjs root
 
 class MyKernel implements KernelAdapter {
   readonly oc = null; // raw WASM instance (used internally by some adapters, can be null)
@@ -206,12 +197,12 @@ import { registerKernel } from 'brepjs';
 registerKernel('test', myKernelAdapter);
 
 // Run: npx vitest run
-// All 2023 tests should pass with your kernel
+// The full suite should pass with your kernel
 ```
 
 ## Multi-Kernel Testing
 
-brepjs tests run against all three kernels (OpenCascade, brepkit, and occt-wasm) in CI. This is configured via vitest projects:
+brepjs tests can run against each kernel (OpenCascade, brepkit, and occt-wasm); CI runs the occt-wasm project. This is configured via vitest projects:
 
 ```typescript
 // vitest.config.ts (simplified)
@@ -231,7 +222,7 @@ The test setup reads `TEST_KERNEL` and initializes the correct adapter. See `tes
 ### Running tests against a specific kernel
 
 ```bash
-# Run all tests with all kernels (default)
+# Run changed tests on the default occt-wasm project
 npm run test
 
 # Run a single kernel
@@ -240,14 +231,14 @@ npx vitest run --project brepkit
 npx vitest run --project occt-wasm
 
 # Run a single test file on all kernels
-npx vitest run tests/fn-booleanFns.test.ts
+npx vitest run tests/booleanFns.test.ts
 ```
 
-Some tests are kernel-specific (e.g., tests for OCCT-only or brepkit-only features). These are listed in `vitest.config.ts` under each kernel's `excludeTests`. See the [Kernel Conformance Matrix](./kernel-conformance.md) for a detailed breakdown of feature parity across all three kernels.
+Some tests are kernel-specific (e.g., tests for OCCT-only or brepkit-only features). These are listed in `tests/helpers/kernelRegistry.ts` under each kernel's `excludeTests`. See the [Kernel Conformance Matrix](./kernel-conformance.md) for a detailed breakdown of feature parity across all three kernels.
 
 ### Testing your custom kernel
 
-To test a custom kernel, add a vitest project that sets `TEST_KERNEL` to your kernel ID, then update `tests/setup.ts` to handle the new case.
+To test a custom kernel, add an entry to `tests/helpers/kernelRegistry.ts` (which generates the vitest project and its `TEST_KERNEL`), then add a branch for it in `tests/helpers/kernelInit.ts`.
 
 ## Architecture Reference
 

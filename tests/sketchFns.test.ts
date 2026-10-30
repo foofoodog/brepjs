@@ -1,7 +1,10 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { initKernel } from './setup.js';
+import { skipIfDiverges } from './helpers/kernelDivergences.js';
 import Sketcher from '@/sketching/sketcher.js';
 import {
+  drawCircle,
+  drawRectangle,
   sketchRectangle,
   sketchCircle,
   measureVolume,
@@ -42,6 +45,21 @@ describe('sketchExtrude', () => {
     expect(solid).toBeDefined();
     expect(unwrap(measureVolume(solid))).toBeCloseTo(500, 0);
   });
+
+  it('extrudes a drawing with a hole, as sketchOnPlane returns it', () => {
+    const sketch = drawRectangle(50, 30).cut(drawCircle(8)).sketchOnPlane('XY');
+    using solid = sketchExtrude(sketch, 10);
+    expect(unwrap(measureVolume(solid))).toBeCloseTo((50 * 30 - Math.PI * 64) * 10, 3);
+  });
+
+  it('extrudes several separate profiles into one compound', () => {
+    const sketch = drawRectangle(10, 10)
+      .fuse(drawRectangle(10, 10).translate(30, 0))
+      .sketchOnPlane('XY');
+    using solid = sketchExtrude(sketch, 5);
+    expect(isCompound(solid)).toBe(true);
+    expect(unwrap(measureVolume(solid))).toBeCloseTo(1000, 3);
+  });
 });
 
 describe('sketchRevolve', () => {
@@ -51,6 +69,14 @@ describe('sketchRevolve', () => {
     const solid = sketchRevolve(sketch, [0, 0, 1]);
     expect(solid).toBeDefined();
     expect(unwrap(measureVolume(solid))).toBeGreaterThan(0);
+  });
+
+  it('revolves a drawing with a hole, as sketchOnPlane returns it', (ctx) => {
+    skipIfDiverges(ctx, 'sketchFns.revolveHoled');
+    const sketch = drawRectangle(10, 20).translate(20, 0).cut(drawCircle(3).translate(20, 0));
+    using solid = sketchRevolve(sketch.sketchOnPlane('XZ'), [0, 0, 1]);
+    // Pappus: the section's centroid sits 20 from the axis.
+    expect(unwrap(measureVolume(solid))).toBeCloseTo(2 * Math.PI * 20 * (200 - Math.PI * 9), 2);
   });
 });
 
@@ -83,13 +109,8 @@ describe('sketchWires', () => {
 describe('sketchSweep', () => {
   it('sweeps a profile along a path', () => {
     const path = new Sketcher('XZ').movePointerTo([0, 0]).lineTo([0, 20]).done();
-    const solid = sketchSweep(path, (plane, origin) => {
-      return new Sketcher(plane, origin)
-        .movePointerTo([-2, -2])
-        .hLine(4)
-        .vLine(4)
-        .hLine(-4)
-        .close();
+    const solid = sketchSweep(path, (plane) => {
+      return new Sketcher(plane).movePointerTo([-2, -2]).hLine(4).vLine(4).hLine(-4).close();
     });
     expect(solid).toBeDefined();
     expect(unwrap(measureVolume(solid))).toBeGreaterThan(0);
@@ -186,7 +207,8 @@ describe('CompoundSketch extrude options', () => {
     expect(unwrap(measureVolume(solid))).toBeGreaterThan(0);
   });
 
-  it('extrudes with twistAngle', () => {
+  it('extrudes with twistAngle', (ctx) => {
+    skipIfDiverges(ctx, 'extrudeFns.twistExtrude');
     const outer = sketchRectangle(10, 10);
     const inner = sketchCircle(2);
     const compound = new CompoundSketch([outer, inner]);
@@ -200,7 +222,8 @@ describe('CompoundSketch extrude options', () => {
     expect(unwrap(measureVolume(solid))).toBeGreaterThan(0);
   });
 
-  it('extrudes with extrusionProfile', () => {
+  it('extrudes with extrusionProfile', (ctx) => {
+    skipIfDiverges(ctx, 'extrudeFns.complexExtrudeLaw');
     const outer = sketchRectangle(10, 10);
     const inner = sketchCircle(2);
     const compound = new CompoundSketch([outer, inner]);

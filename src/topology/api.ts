@@ -6,7 +6,8 @@
  */
 
 import type { Vec3, MatrixInput } from '@/core/types.js';
-import type { Result } from '@/core/result.js';
+import { type Result, err } from '@/core/result.js';
+import { BrepErrorCode, kernelError, validationError } from '@/core/errors.js';
 import type { AnyShape, Dimension, Edge, Face, Shape3D, Shell, Solid } from '@/core/shapeTypes.js';
 import type { ValidSolid } from '@/core/validityTypes.js';
 import type {
@@ -273,6 +274,27 @@ function resolveEdges(
   return finder.findAll(shape);
 }
 
+// The 3-arg overloads are positional, so `fillet(shape, 2, edges)` would otherwise call the
+// radius as a FinderFn and throw "edgesOrFn is not a function". A callback is ambiguous
+// (FinderFn vs per-edge radius) and stays accepted.
+function isEdgeSelection(value: unknown): boolean {
+  if (value === undefined || typeof value === 'function') return true;
+  if (Array.isArray(value)) return value.every((e) => typeof e === 'object' && e !== null);
+  return typeof value === 'object' && value !== null && 'findAll' in value;
+}
+
+function edgeSelectionError(op: 'fillet' | 'chamfer', amount: 'radius' | 'distance') {
+  return err(
+    validationError(
+      BrepErrorCode.INVALID_EDGE_SELECTION,
+      `${op}(shape, edges, ${amount}): the 2nd argument must be the edges (an Edge[], an edge finder, or a finder callback), got a ${amount} value. The arguments look swapped.`,
+      undefined,
+      undefined,
+      `Call ${op}(shape, edges, ${amount}), or ${op}(shape, ${amount}) to apply it to every edge.`
+    )
+  );
+}
+
 function resolveFaces(
   facesOrFn: Face[] | FinderFn<Face> | ShapeFinder<Face>,
   shape: Shape3D
@@ -288,38 +310,66 @@ function resolveFaces(
   return finder.findAll(shape);
 }
 
-/**
- * Normalize a ChamferDistance, handling the {distance, angle} case.
- * Returns either a kernel-compatible distance or signals distance-angle mode.
- */
-type NormalizedChamfer =
-  | {
-      mode: 'standard';
-      distance: number | [number, number] | ((edge: Edge) => number | [number, number] | null);
-    }
-  | { mode: 'distAngle'; distance: number; angle: number };
+type ChamferDistAngle = { distance: number; angle: number };
+type ChamferEdgeDistAngle = ChamferDistAngle & { face?: Face | undefined };
+type ChamferEdgeDistance = number | [number, number] | ChamferEdgeDistAngle | null;
 
-function normalizeChamferDistance(distance: ChamferDistance): NormalizedChamfer {
-  if (typeof distance === 'object' && !Array.isArray(distance) && typeof distance !== 'function') {
-    // { distance, angle } mode
-    return { mode: 'distAngle', distance: distance.distance, angle: distance.angle };
+function isDistAngle(value: ChamferDistance | ChamferEdgeDistance): value is ChamferDistAngle {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+// The rule modifierFns.chamfer applies to callback values: a non-positive distance skips the edge.
+function skipsEdge(value: number | [number, number]): boolean {
+  return typeof value === 'number' ? value <= 0 : value[0] <= 0 || value[1] <= 0;
+}
+
+/**
+ * Chamfer with a per-edge callback, run once per edge. One kernel operation
+ * takes either distances or distance-angle pairs, so a callback that keeps
+ * edges of both kinds is rejected: two chamfers in sequence would not meet the
+ * way one does where those edges share a vertex.
+ */
+function chamferEachEdge(
+  shape: ValidSolid,
+  edges: ReadonlyArray<Edge>,
+  distanceOf: (edge: Edge) => ChamferEdgeDistance
+): Result<Shape3D> {
+  const distances = new Map<Edge, number | [number, number]>();
+  const distAngles: angles.EdgeDistAngle[] = [];
+  try {
+    for (const edge of edges) {
+      const value = distanceOf(edge);
+      if (value === null) continue;
+      if (!isDistAngle(value)) distances.set(edge, value);
+      else if (value.distance > 0) distAngles.push({ edge, ...value });
+    }
+  } catch (e) {
+    // A throwing callback fails the chamfer as a Result, as it does inside modifierFns.chamfer.
+    const raw = e instanceof Error ? e.message : String(e);
+    return err(
+      kernelError('CHAMFER_FAILED', `Chamfer operation failed: ${raw}`, e, {
+        operation: 'chamfer',
+        edgeCount: edges.length,
+      })
+    );
   }
-  if (typeof distance === 'function') {
-    // Per-edge callback — check if any returns { distance, angle }
-    // Wrap callback to extract standard values
-    const wrappedFn = (edge: Edge) => {
-      const val = distance(edge);
-      if (val === null) return null;
-      if (typeof val === 'object' && !Array.isArray(val)) {
-        // { distance, angle } — not supported in per-edge callback for standard chamfer
-        // Fall back to distance-only
-        return val.distance;
-      }
-      return val;
-    };
-    return { mode: 'standard', distance: wrappedFn };
+
+  if (distAngles.length === 0) {
+    return modifiers.chamfer(shape, edges, (edge) => distances.get(edge) ?? null);
   }
-  return { mode: 'standard', distance };
+  const plainCount = [...distances.values()].filter((v) => !skipsEdge(v)).length;
+  if (plainCount > 0) {
+    return err(
+      validationError(
+        BrepErrorCode.INVALID_CHAMFER_DISTANCE,
+        `chamfer: the distance callback returned a plain distance for ${plainCount} edge(s) and { distance, angle } for ${distAngles.length}; one chamfer cannot mix the two`,
+        undefined,
+        { plainEdgeCount: plainCount, distAngleEdgeCount: distAngles.length },
+        'Return { distance, angle } for every edge, or chamfer the two groups of edges in separate calls'
+      )
+    );
+  }
+  return angles.chamferDistAngles(shape, distAngles);
 }
 
 // Overloads: 2-arg (all edges) vs 3-arg (selected edges)
@@ -343,6 +393,7 @@ export function fillet<T extends ValidSolid>(
 
   if (maybeRadius !== undefined) {
     // 3-arg form: shape, edges, radius
+    if (!isEdgeSelection(edgesOrRadius)) return edgeSelectionError('fillet', 'radius');
     edges = resolveEdges(edgesOrRadius as Edge[] | FinderFn<Edge> | ShapeFinder<Edge>, s);
     radius = maybeRadius;
   } else {
@@ -375,6 +426,7 @@ export function chamfer<T extends ValidSolid>(
   let distance: ChamferDistance;
 
   if (maybeDistance !== undefined) {
+    if (!isEdgeSelection(edgesOrDistance)) return edgeSelectionError('chamfer', 'distance');
     edges = resolveEdges(edgesOrDistance as Edge[] | FinderFn<Edge> | ShapeFinder<Edge>, s);
     distance = maybeDistance;
   } else {
@@ -382,19 +434,20 @@ export function chamfer<T extends ValidSolid>(
     distance = edgesOrDistance as ChamferDistance;
   }
 
-  const normalized = normalizeChamferDistance(distance);
-  if (normalized.mode === 'distAngle') {
-    // Use chamferDistAngle for distance-angle mode
+  if (typeof distance === 'function') {
+    return chamferEachEdge(s, edges ?? transforms.getEdges(s), distance) as Result<T>;
+  }
+  if (isDistAngle(distance)) {
     const selectedEdges = edges ?? transforms.getEdges(s);
     return angles.chamferDistAngle(
       s,
       [...selectedEdges],
-      normalized.distance,
-      normalized.angle
+      distance.distance,
+      distance.angle
     ) as Result<T>;
   }
 
-  return modifiers.chamfer(s, edges, normalized.distance) as Result<T>;
+  return modifiers.chamfer(s, edges, distance) as Result<T>;
 }
 
 /** Create a hollow shell by removing faces and offsetting remaining walls. */

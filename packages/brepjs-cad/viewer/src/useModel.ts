@@ -13,6 +13,24 @@ export function parseModelParams(search: string): ModelParams | null {
   const file = p.get('file');
   return file ? { dir: p.get('dir'), file } : null;
 }
+function isSceneOnly(data: string): boolean {
+  try {
+    const msg = JSON.parse(data) as { scene?: boolean; model?: boolean };
+    return msg.scene === true && msg.model !== true;
+  } catch {
+    return false;
+  }
+}
+
+// A build that threw is served as an empty payload with nothing listed in `failed`, so an
+// empty preview must not read as valid.
+export function previewValid(payload: {
+  elements: readonly unknown[];
+  failed: readonly unknown[];
+}): boolean {
+  return payload.elements.length > 0 && payload.failed.length === 0;
+}
+
 export function extOf(file: string): string {
   const d = file.lastIndexOf('.');
   return d === -1 ? '' : file.slice(d).toLowerCase();
@@ -52,7 +70,7 @@ export function useModel({ inspect = false }: UseModelOptions = {}): ModelState 
           setState({
             status: 'ready',
             data: payload.data,
-            measurements: { valid: payload.failed.length === 0 },
+            measurements: { valid: previewValid(payload) },
             preview: {
               elements: payload.elements,
               failed: payload.failed,
@@ -66,7 +84,10 @@ export function useModel({ inspect = false }: UseModelOptions = {}): ModelState 
       };
       void load();
       const events = new EventSource('/__preview/events');
-      events.onmessage = () => void load();
+      // A scene-only ping restyles the page; the model itself is unchanged.
+      events.onmessage = (e: MessageEvent<string>) => {
+        if (!isSceneOnly(e.data)) void load();
+      };
       return () => {
         cancelled = true;
         events.close();

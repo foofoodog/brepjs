@@ -1,8 +1,9 @@
 import { describe, expect, it, beforeAll, vi } from 'vitest';
 import { initKernel, currentKernel } from './setup.js';
-import { shouldSkipSuite } from './helpers/kernelDivergences.js';
+import { shouldSkipSuite, skipIfDiverges } from './helpers/kernelDivergences.js';
 import {
   box,
+  cylinder,
   sphere,
   mesh,
   meshEdges,
@@ -10,13 +11,31 @@ import {
   exportSTL,
   exportIGES,
   compound,
+  cut,
+  face,
+  getBounds,
+  getEdges,
+  getFaces,
+  getHashCode,
+  getSolids,
+  importSTEP,
+  isPlanarWire,
+  line,
+  measureVolume,
+  sewShells,
+  translate,
+  vertexPosition,
+  verticesOfEdge,
+  wireLoop,
   isOk,
   isErr,
   unwrap,
   unwrapErr,
   clearMeshCache,
   getKernel,
+  type Face,
 } from '@/index.js';
+import type { Shape3D } from '@/index.js';
 
 describe('meshFns', () => {
   beforeAll(async () => {
@@ -31,6 +50,27 @@ describe('meshFns', () => {
       expect(m.triangles.length).toBeGreaterThan(0);
       expect(m.normals.length).toBeGreaterThan(0);
       expect(m.faceGroups.length).toBe(6); // 6 faces
+    });
+
+    it("labels a bare face's triangles with the face's hash code", () => {
+      using b = box(10, 10, 10);
+      for (const f of getFaces(b)) {
+        expect(mesh(f, { cache: false }).faceGroups.map((g) => g.faceId)).toEqual([getHashCode(f)]);
+      }
+    });
+
+    it('meshes a compound of loose faces and a sewn shell', () => {
+      using a = squareSheet();
+      using b = translate(a, [20, 0, 0]);
+      using sheets = compound([a, b]);
+      const loose = mesh(sheets, { cache: false });
+      // Two 10 x 10 squares, two triangles each.
+      expect(loose.triangles.length).toBe(4 * 3);
+      expect(loose.faceGroups.map((g) => g.faceId).sort((x, y) => x - y)).toEqual(
+        [getHashCode(a), getHashCode(b)].sort((x, y) => x - y)
+      );
+      using shell = unwrap(sewShells([a, b], true));
+      expect(mesh(shell, { cache: false }).triangles.length).toBe(4 * 3);
     });
 
     it('respects tolerance option', () => {
@@ -143,6 +183,63 @@ describe('meshFns', () => {
       expect(edgeMesh.edgeGroups.length).toBe(12); // 12 edges on a box
     });
 
+    it("labels each edge polyline with its edge's hash code", () => {
+      using b = box(40, 30, 20);
+      const { lines, edgeGroups } = meshEdges(b, { cache: false });
+      const edges = getEdges(b);
+      expect(edgeGroups.map((g) => g.edgeId).sort((x, y) => x - y)).toEqual(
+        edges.map(getHashCode).sort((x, y) => x - y)
+      );
+      // Each polyline runs between the end points of the edge it names.
+      for (const g of edgeGroups) {
+        const edge = edges.find((e) => getHashCode(e) === g.edgeId);
+        if (!edge) throw new Error(`no edge has hash ${g.edgeId}`);
+        const ends = verticesOfEdge(edge).map((v) => vertexPosition(v));
+        const first = pointAt(lines, g.start);
+        const last = pointAt(lines, g.start + g.count - 1);
+        expect(ends.some((p) => near(p, first))).toBe(true);
+        expect(ends.some((p) => near(p, last))).toBe(true);
+      }
+
+      using block = box(40, 30, 20);
+      using bore = cylinder(5, 30, { at: [20, 15, -5] });
+      using drilled = unwrap(cut(block, bore));
+      const drilledIds = meshEdges(drilled, { cache: false }).edgeGroups.map((g) => g.edgeId);
+      expect(drilledIds.sort((x, y) => x - y)).toEqual(
+        getEdges(drilled)
+          .map(getHashCode)
+          .sort((x, y) => x - y)
+      );
+    });
+
+    it('meshes the edges of a loose face and of a compound of faces', () => {
+      using a = squareSheet();
+      using b = translate(a, [20, 0, 0]);
+      const one = meshEdges(a, { cache: false });
+      expect(one.edgeGroups.map((g) => g.edgeId).sort((x, y) => x - y)).toEqual(
+        getEdges(a)
+          .map(getHashCode)
+          .sort((x, y) => x - y)
+      );
+      expect(one.lines.length).toBe(4 * 2 * 3);
+      using sheets = compound([a, b]);
+      expect(meshEdges(sheets, { cache: false }).edgeGroups).toHaveLength(8);
+    });
+
+    it('samples the circular edge of a loose disc onto the circle', () => {
+      using c = cylinder(5, 10);
+      const cap = getFaces(c).find((f) => getBounds(f).zMin > 9.9);
+      if (!cap) throw new Error('cylinder has no top cap');
+      const { lines, edgeGroups } = meshEdges(cap, { tolerance: 0.01, cache: false });
+      expect(edgeGroups).toHaveLength(1);
+      expect(lines.length / 6).toBeGreaterThan(16);
+      for (let i = 0; i < lines.length / 3; i++) {
+        const [x, y, z] = pointAt(lines, i);
+        expect(Math.hypot(x, y)).toBeCloseTo(5, 4);
+        expect(z).toBeCloseTo(10, 4);
+      }
+    });
+
     it('returns cached result on second call with same parameters', () => {
       clearMeshCache();
       const b = box(10, 10, 10);
@@ -160,6 +257,39 @@ describe('meshFns', () => {
       // Not cached — different object
       expect(mesh2).not.toBe(mesh1);
     });
+
+    it.skipIf(currentKernel === 'manifold' || shouldSkipSuite('meshFns.edgeAngularTolerance'))(
+      'edge density follows angularTolerance, not just the chord deflection',
+      () => {
+        // A 1-unit chord deflection alone puts ~5 segments on an r=5 circle.
+        using a = cylinder(5, 10);
+        using b = cylinder(5, 10);
+        const coarse = meshEdges(a, { tolerance: 1, angularTolerance: 1, cache: false });
+        const fine = meshEdges(b, { tolerance: 1, angularTolerance: 0.1, cache: false });
+        expect(fine.lines.length).toBeGreaterThan(coarse.lines.length * 3);
+      }
+    );
+
+    it.skipIf(currentKernel === 'manifold' || shouldSkipSuite('meshFns.edgesOnFaceMesh'))(
+      'edge polylines lie on face mesh vertices at the same tolerances',
+      () => {
+        // Separately sampled edges draw chords that cut through the shaded
+        // surface on small arcs, which reads as faceting.
+        using c = cylinder(2.4, 1.8);
+        const opts = { tolerance: 0.1, angularTolerance: 0.2, cache: false };
+        const faces = mesh(c, opts);
+        const edges = meshEdges(c, opts);
+        const key = (a: Float32Array, i: number) =>
+          [a[i], a[i + 1], a[i + 2]].map((v) => (v ?? NaN).toFixed(4)).join(',');
+        const faceVerts = new Set<string>();
+        for (let i = 0; i < faces.vertices.length; i += 3) faceVerts.add(key(faces.vertices, i));
+        expect(edges.lines.length).toBeGreaterThan(0);
+        for (let i = 0; i < edges.lines.length; i += 3) {
+          const p = key(edges.lines, i);
+          expect(faceVerts.has(p), p).toBe(true);
+        }
+      }
+    );
   });
 
   describe('exportSTEP', () => {
@@ -169,6 +299,23 @@ describe('meshFns', () => {
       expect(isOk(result)).toBe(true);
       const blob = unwrap(result);
       expect(blob.size).toBeGreaterThan(0);
+    });
+
+    it('writes a compound as one STEP document holding every solid', async () => {
+      using first = box(10, 10, 10);
+      using unplaced = box(5, 5, 5);
+      using second = translate(unplaced, [30, 0, 0]);
+      using both = compound([first, second]);
+      const step = await unwrap(exportSTEP(both)).text();
+      expect(step.match(/^ISO-10303-21;/gm)).toHaveLength(1);
+      expect(step.match(/END-ISO-10303-21;/g)).toHaveLength(1);
+
+      using imported = unwrap(await importSTEP(new Blob([step])));
+      expect(getSolids(imported)).toHaveLength(2);
+      expect(unwrap(measureVolume(imported as Shape3D))).toBeCloseTo(1125, 3);
+      const bounds = getBounds(imported);
+      expect(bounds.xMin).toBeCloseTo(0, 3);
+      expect(bounds.xMax).toBeCloseTo(35, 3);
     });
 
     it.skipIf(shouldSkipSuite('meshFns.stepReadError'))(
@@ -278,6 +425,34 @@ describe('meshFns', () => {
     // Triangle count from a binary STL header (uint32 at byte offset 80).
     const stlTriCount = async (blob: Blob): Promise<number> =>
       new DataView(await blob.arrayBuffer()).getUint32(80, true);
+
+    /** The [min, max] x of a binary STL's vertices (50-byte records after the 84-byte header). */
+    const stlXRange = async (blob: Blob): Promise<[number, number]> => {
+      const view = new DataView(await blob.arrayBuffer());
+      let min = Infinity;
+      let max = -Infinity;
+      for (let t = 0; t < view.getUint32(80, true); t++) {
+        for (let v = 0; v < 3; v++) {
+          const x = view.getFloat32(84 + t * 50 + 12 + v * 12, true);
+          min = Math.min(min, x);
+          max = Math.max(max, x);
+        }
+      }
+      return [min, max];
+    };
+
+    it('writes every solid of a compound', async () => {
+      using first = box(10, 10, 10);
+      using unplaced = box(10, 10, 10);
+      using second = translate(unplaced, [30, 0, 0]);
+      using both = compound([first, second]);
+      const one = await stlTriCount(unwrap(exportSTL(first, { binary: true })));
+      const stl = unwrap(exportSTL(both, { binary: true }));
+      expect(await stlTriCount(stl)).toBe(2 * one);
+      const [xMin, xMax] = await stlXRange(stl);
+      expect(xMin).toBeCloseTo(0, 3);
+      expect(xMax).toBeCloseTo(40, 3);
+    });
 
     it.skipIf(shouldSkipSuite('meshFns.exportStlTolerance'))(
       'threads linear tolerance through to tessellation (coarse vs fine differ)',
@@ -432,6 +607,62 @@ describe('meshFns', () => {
   });
 
   describe('exportIGES', () => {
+    /** An IGES file's lines by the section letter in column 73. */
+    const igesSections = (text: string): Record<string, string[]> => {
+      const out: Record<string, string[]> = { S: [], G: [], D: [], P: [], T: [] };
+      for (const line of text.split('\n')) {
+        if (line.length >= 73) out[line.charAt(72)]?.push(line);
+      }
+      return out;
+    };
+
+    /** Where the numbering and links of an IGES file's sections disagree. */
+    const igesProblems = (s: Record<string, string[]>): string[] => {
+      const problems: string[] = [];
+      const num = (line: string | undefined, from: number, to: number): number =>
+        Number(line?.slice(from, to).trim() ?? NaN);
+      const [D, P, T] = [s['D'] ?? [], s['P'] ?? [], s['T'] ?? []];
+      for (const [letter, lines] of [['D', D] as const, ['P', P] as const]) {
+        lines.forEach((line, i) => {
+          if (num(line, 73, 80) !== i + 1) problems.push(`${letter} line ${i + 1} numbered wrong`);
+        });
+      }
+      for (let i = 0; i + 1 < D.length; i += 2) {
+        const first = num(D[i], 8, 16);
+        const count = num(D[i + 1], 24, 32);
+        for (let k = 0; k < count; k++) {
+          if (num(P[first - 1 + k], 64, 72) !== i + 1) problems.push(`entry ${i + 1} not linked`);
+        }
+      }
+      const counts = ['S', 'G', 'D', 'P'].map((l) => l + String(s[l]?.length).padStart(7));
+      if (T.length !== 1 || !T[0]?.startsWith(counts.join(''))) problems.push('terminate counts');
+      return problems;
+    };
+
+    it('writes a compound as one IGES document holding every solid', async (ctx) => {
+      skipIfDiverges(ctx, 'meshFns.igesExport');
+      using first = box(10, 10, 10);
+      using unplaced = box(10, 10, 10);
+      using second = translate(unplaced, [30, 0, 0]);
+      using both = compound([first, second]);
+      const one = igesSections(await unwrap(exportIGES(first)).text());
+      const iges = igesSections(await unwrap(exportIGES(both)).text());
+
+      expect(iges['S']).toHaveLength(one['S']?.length ?? 0);
+      expect(iges['D']).toHaveLength(2 * (one['D']?.length ?? 0));
+      expect(iges['P']).toHaveLength(2 * (one['P']?.length ?? 0));
+      expect(igesProblems(iges)).toEqual([]);
+      // Line entities (type 110) run from x = 0 on the first box to x = 40 on the second.
+      const xs = (iges['P'] ?? [])
+        .filter((line) => line.startsWith('110,'))
+        .flatMap((line) => {
+          const v = line.slice(0, 64).split(/[,;]/).map(Number);
+          return [v[1] ?? NaN, v[4] ?? NaN];
+        });
+      expect(Math.min(...xs)).toBeCloseTo(0, 3);
+      expect(Math.max(...xs)).toBeCloseTo(40, 3);
+    });
+
     it('exports a shape to IGES blob when IGES is available in the WASM build', () => {
       const oc = getKernel().oc;
       if (typeof oc.IGESControl_Writer_1 !== 'function') {
@@ -480,3 +711,24 @@ describe('meshFns', () => {
     });
   });
 });
+
+/** A loose 10 x 10 square face in the XZ plane. */
+function squareSheet(): Face {
+  using e1 = line([0, 0, 0], [10, 0, 0]);
+  using e2 = line([10, 0, 0], [10, 0, 10]);
+  using e3 = line([10, 0, 10], [0, 0, 10]);
+  using e4 = line([0, 0, 10], [0, 0, 0]);
+  using loop = unwrap(wireLoop([e1, e2, e3, e4]));
+  if (!isPlanarWire(loop)) throw new Error('square is not planar');
+  return unwrap(face(loop));
+}
+
+function pointAt(lines: Float32Array, vertex: number): [number, number, number] {
+  return [lines[vertex * 3] ?? NaN, lines[vertex * 3 + 1] ?? NaN, lines[vertex * 3 + 2] ?? NaN];
+}
+
+function near(a: readonly number[], b: readonly number[]): boolean {
+  const [ax = 0, ay = 0, az = 0] = a;
+  const [bx = 0, by = 0, bz = 0] = b;
+  return Math.hypot(ax - bx, ay - by, az - bz) < 1e-4;
+}

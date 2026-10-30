@@ -30,6 +30,7 @@ import {
   closedWire,
   isClosedWire,
   isOrientedFace,
+  isPlanarWire,
   isValidSolid,
   isSolid,
   isShape3D,
@@ -111,6 +112,7 @@ describe('getting-started.md examples', () => {
     const cw = unwrap(squareWireLoop());
     expect(isClosedWire(cw)).toBe(true);
 
+    if (!isPlanarWire(cw)) throw new Error('profile is not planar');
     const f = unwrap(face(cw));
     expect(isOrientedFace(f)).toBe(true);
 
@@ -189,9 +191,8 @@ describe('cheat-sheet.md examples', () => {
     const sketch = drawingToSketchOnPlane(profile, 'XY');
     const solid = shape(sketch.face()).extrude(20).val;
     expect(isShape3D(solid)).toBe(true);
-    // Volume should be positive and less than the full rectangle extruded
-    expect(unwrap(measureVolume(solid))).toBeGreaterThan(0);
-    expect(unwrap(measureVolume(solid))).toBeLessThan(50 * 30 * 20);
+    // The circle sits on the corner, so a quarter of it comes out of the rectangle.
+    expect(unwrap(measureVolume(solid))).toBeCloseTo((50 * 30 - (Math.PI * 64) / 4) * 20, 2);
   });
 });
 
@@ -206,6 +207,7 @@ describe('validity types (concepts.md + getting-started.md)', () => {
     const cw = unwrap(squareWireLoop());
     expect(isClosedWire(cw)).toBe(true);
 
+    if (!isPlanarWire(cw)) throw new Error('profile is not planar');
     const f = unwrap(face(cw));
     expect(isOrientedFace(f)).toBe(true);
 

@@ -24,6 +24,9 @@ import {
   bezier,
   tangentArc,
   wire,
+  wireLoop,
+  getBounds,
+  isPlanarWire,
   face,
   polygon,
   vertex,
@@ -65,10 +68,13 @@ import {
   measureVolume,
   measureArea,
   faceFinder,
+  edgeFinder,
   sketchCircle,
   getFaces,
   getKernel,
+  getSolids,
 } from '@/index.js';
+import type { Shape3D } from '@/index.js';
 import { faceGeomType } from '@/topology/faceFns.js';
 
 beforeAll(async () => {
@@ -86,13 +92,15 @@ describe('box()', () => {
   });
 
   it('centers a box at origin', () => {
-    const b = box(10, 10, 10, { center: true });
-    expect(unwrap(measureVolume(b))).toBeCloseTo(1000, 0);
+    const b = box(10, 10, 10, { centered: true });
+    expect(getBounds(b).xMin).toBeCloseTo(-5, 6);
+    expect(getBounds(b).zMax).toBeCloseTo(5, 6);
   });
 
   it('centers a box at a specific point', () => {
-    const b = box(10, 10, 10, { center: [5, 5, 5] });
-    expect(unwrap(measureVolume(b))).toBeCloseTo(1000, 0);
+    const b = box(10, 10, 10, { centered: true, at: [5, 5, 5] });
+    expect(getBounds(b).xMin).toBeCloseTo(0, 6);
+    expect(getBounds(b).zMax).toBeCloseTo(10, 6);
   });
 
   it('positions a box via at (center semantics)', () => {
@@ -116,6 +124,13 @@ describe('cylinder()', () => {
   it('supports centered option', () => {
     const c = cylinder(5, 10, { centered: true });
     expect(unwrap(measureVolume(c))).toBeCloseTo(Math.PI * 25 * 10, 0);
+  });
+
+  it('centres on a non-unit axis by half the height', () => {
+    using c = cylinder(5, 20, { axis: [0, 0, 2], centered: true });
+    const b = getBounds(c);
+    expect(b.zMin).toBeCloseTo(-10, 6);
+    expect(b.zMax).toBeCloseTo(10, 6);
   });
 });
 
@@ -148,6 +163,13 @@ describe('cone()', () => {
   it('creates a centered cone', () => {
     const c = cone(5, 0, 10, { centered: true });
     expect(unwrap(measureVolume(c))).toBeCloseTo((1 / 3) * Math.PI * 25 * 10, 0);
+  });
+
+  it('centres on a non-unit axis by half the height', () => {
+    using c = cone(5, 2, 20, { axis: [0, 3, 0], centered: true });
+    const b = getBounds(c);
+    expect(b.yMin).toBeCloseTo(-10, 6);
+    expect(b.yMax).toBeCloseTo(10, 6);
   });
 });
 
@@ -229,7 +251,8 @@ describe('topology constructors', () => {
     const e2 = line([10, 0, 0], [10, 10, 0]);
     const e3 = line([10, 10, 0], [0, 10, 0]);
     const e4 = line([0, 10, 0], [0, 0, 0]);
-    const w = unwrap(wire([e1, e2, e3, e4]));
+    const w = unwrap(wireLoop([e1, e2, e3, e4]));
+    if (!isPlanarWire(w)) throw new Error('profile is not planar');
     const f = unwrap(face(w));
     expect(unwrap(measureArea(f))).toBeCloseTo(100, 0);
   });
@@ -395,6 +418,25 @@ describe('fillet()', () => {
     expect(isOk(result)).toBe(true);
     expect(isValid(unwrap(result))).toBe(true);
   });
+
+  it('returns INVALID_EDGE_SELECTION when radius and edges are swapped', () => {
+    using b = box(10, 10, 10);
+    // @ts-expect-error -- deliberately swapped arguments, as an author might write them
+    const result = fillet(b, 1, edgeFinder().inDirection('Z'));
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) {
+      expect(result.error.code).toBe('INVALID_EDGE_SELECTION');
+      expect(result.error.message).toContain('fillet(shape, edges, radius)');
+    }
+  });
+
+  it('returns INVALID_EDGE_SELECTION for a swapped variable-radius tuple', () => {
+    using b = box(10, 10, 10);
+    // @ts-expect-error -- deliberately swapped arguments, as an author might write them
+    const result = fillet(b, [1, 2], edgeFinder().inDirection('Z'));
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('INVALID_EDGE_SELECTION');
+  });
 });
 
 describe('chamfer()', () => {
@@ -409,6 +451,22 @@ describe('chamfer()', () => {
     const b = box(20, 20, 20);
     const result = chamfer(b, (e) => e.inDirection('Z'), { distance: 2, angle: 45 });
     expect(isOk(result)).toBe(true);
+  });
+
+  it('returns INVALID_EDGE_SELECTION when distance and edges are swapped', () => {
+    using b = box(20, 20, 20);
+    // @ts-expect-error -- deliberately swapped arguments, as an author might write them
+    const result = chamfer(b, { distance: 2, angle: 45 }, edgeFinder().inDirection('Z'));
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('INVALID_EDGE_SELECTION');
+  });
+
+  it('returns INVALID_EDGE_SELECTION for a swapped asymmetric-distance tuple', () => {
+    using b = box(20, 20, 20);
+    // @ts-expect-error -- deliberately swapped arguments, as an author might write them
+    const result = chamfer(b, [1, 2], edgeFinder().inDirection('Z'));
+    expect(isErr(result)).toBe(true);
+    if (isErr(result)) expect(result.error.code).toBe('INVALID_EDGE_SELECTION');
   });
 });
 
@@ -574,6 +632,16 @@ describe('toBREP() / fromBREP()', () => {
     expect(brep).toBeTruthy();
     const result = fromBREP(brep);
     expect(isOk(result)).toBe(true);
+  });
+
+  it('round-trips every solid of a compound', () => {
+    using first = box(10, 10, 10);
+    using unplaced = box(5, 5, 5);
+    using second = translate(unplaced, [30, 0, 0]);
+    using both = compound([first, second]);
+    using restored = unwrap(fromBREP(unwrap(toBREP(both))));
+    expect(getSolids(restored)).toHaveLength(2);
+    expect(unwrap(measureVolume(restored as Shape3D))).toBeCloseTo(1125, 3);
   });
 });
 

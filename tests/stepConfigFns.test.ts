@@ -1,6 +1,23 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { initKernel } from './setup.js';
-import { box, exportSTEPConfigured, isOk, unwrap } from '@/index.js';
+import { skipIfDiverges } from './helpers/kernelDivergences.js';
+import {
+  INCH_UNIT,
+  MILLIMETER_UNIT,
+  largestStepCoordinate,
+  stepProductNames,
+} from './helpers/stepText.js';
+import {
+  box,
+  exportSTEPConfigured,
+  getSolids,
+  importSTEP,
+  isOk,
+  locate,
+  measureVolume,
+  unwrap,
+} from '@/index.js';
+import type { Shape3D } from '@/index.js';
 
 beforeAll(async () => {
   await initKernel();
@@ -40,5 +57,126 @@ describe('exportSTEPConfigured', () => {
       // May not be supported on all kernels
       expect(result.error.code).toBe('STEP_EXPORT_CONFIGURED_FAILED');
     }
+  });
+
+  it('writes named parts that share geometry as separate parts', async () => {
+    using plate = box(20, 10, 2);
+    // `locate` shares the plate's geometry.
+    using lid = locate(plate, { type: 'translate', v: [0, 0, 10] });
+    const step = unwrap(
+      exportSTEPConfigured([
+        { shape: plate, name: 'base' },
+        { shape: lid, name: 'lid' },
+      ])
+    );
+    using imported = unwrap(await importSTEP(new Blob([step])));
+    expect(getSolids(imported)).toHaveLength(2);
+    expect(unwrap(measureVolume(imported as Shape3D))).toBeCloseTo(800, 3);
+  });
+
+  it('keeps the names of parts that share geometry', (ctx) => {
+    skipIfDiverges(ctx, 'exporterFns.partNames');
+    using plate = box(20, 10, 2);
+    using lid = locate(plate, { type: 'translate', v: [0, 0, 10] });
+    const step = unwrap(
+      exportSTEPConfigured([
+        { shape: plate, name: 'base' },
+        { shape: lid, name: 'lid' },
+      ])
+    );
+    expect(stepProductNames(step)).toEqual(expect.arrayContaining(['base', 'lid']));
+  });
+
+  // `unit` is the unit written; `modelUnit`, defaulting to `unit`, is the unit
+  // the shape's numbers are in. A 10 mm cube's far corner reads 10 unless the
+  // two differ.
+  describe('length units', () => {
+    it('writes millimeters by default', (ctx) => {
+      skipIfDiverges(ctx, 'stepConfigFns.units');
+      using b = box(10, 10, 10);
+      const step = unwrap(exportSTEPConfigured([{ shape: b }]));
+      expect(step).toContain(MILLIMETER_UNIT);
+      expect(step).not.toContain(INCH_UNIT);
+      expect(largestStepCoordinate(step)).toBeCloseTo(10, 9);
+    });
+
+    it('writes the model in the unit given, unscaled', (ctx) => {
+      skipIfDiverges(ctx, 'stepConfigFns.units');
+      using b = box(10, 10, 10);
+      const step = unwrap(exportSTEPConfigured([{ shape: b }], { unit: 'inch' }));
+      expect(step).toContain(INCH_UNIT);
+      expect(largestStepCoordinate(step)).toBeCloseTo(10, 9);
+    });
+
+    it('converts a millimeter model into the unit written', (ctx) => {
+      skipIfDiverges(ctx, 'stepConfigFns.units');
+      using b = box(10, 10, 10);
+      const step = unwrap(exportSTEPConfigured([{ shape: b }], { unit: 'inch', modelUnit: 'mm' }));
+      expect(step).toContain(INCH_UNIT);
+      expect(largestStepCoordinate(step)).toBeCloseTo(10 / 25.4, 9);
+    });
+
+    it('converts several shapes into one file', (ctx) => {
+      skipIfDiverges(ctx, 'stepConfigFns.units');
+      using a = box(10, 10, 10);
+      using b = box(10, 10, 10, { at: [25, 5, 5] });
+      const step = unwrap(
+        exportSTEPConfigured([{ shape: a }, { shape: b }], { unit: 'mm', modelUnit: 'cm' })
+      );
+      expect(step).not.toContain(INCH_UNIT);
+      expect(largestStepCoordinate(step)).toBeCloseTo(300, 9);
+    });
+
+    it('honours units for named and colored parts', (ctx) => {
+      skipIfDiverges(ctx, 'stepConfigFns.units');
+      using b = box(10, 10, 10);
+      const part = { shape: b, name: 'RedBox', color: [255, 0, 0, 255] as const };
+      const relabeled = unwrap(exportSTEPConfigured([part], { unit: 'inch' }));
+      expect(relabeled).toContain(INCH_UNIT);
+      expect(relabeled).toContain('RedBox');
+      expect(largestStepCoordinate(relabeled)).toBeCloseTo(10, 9);
+      const converted = unwrap(exportSTEPConfigured([part], { unit: 'inch', modelUnit: 'mm' }));
+      expect(largestStepCoordinate(converted)).toBeCloseTo(10 / 25.4, 9);
+    });
+  });
+
+  describe('application protocol', () => {
+    const fileSchema = (step: string): string =>
+      /FILE_SCHEMA\(\(([\s\S]*?)\)\);/.exec(step)?.[1] ?? '';
+
+    it('writes AP214 by default', (ctx) => {
+      skipIfDiverges(ctx, 'stepConfigFns.schema');
+      using b = box(10, 10, 10);
+      expect(fileSchema(unwrap(exportSTEPConfigured([{ shape: b }])))).toContain(
+        'AUTOMOTIVE_DESIGN'
+      );
+    });
+
+    it.for([
+      [203, 'CONFIG_CONTROL_DESIGN'],
+      [214, 'AUTOMOTIVE_DESIGN'],
+      [242, 'AP242_MANAGED_MODEL_BASED_3D_ENGINEERING'],
+    ] as const)('writes schema %i as %s, alongside the unit', ([schema, name], ctx) => {
+      skipIfDiverges(ctx, 'stepConfigFns.schema');
+      using b = box(10, 10, 10);
+      const step = unwrap(exportSTEPConfigured([{ shape: b }], { schema, unit: 'inch' }));
+      expect(fileSchema(step)).toContain(name);
+      expect(step).toContain(INCH_UNIT);
+    });
+
+    it('writes the schema for named and colored parts', (ctx) => {
+      skipIfDiverges(ctx, 'stepConfigFns.schema');
+      using b = box(10, 10, 10);
+      const part = { shape: b, name: 'RedBox', color: [255, 0, 0, 255] as const };
+      const step = unwrap(exportSTEPConfigured([part], { schema: 242 }));
+      expect(fileSchema(step)).toContain('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING');
+      expect(step).toContain('RedBox');
+    });
+
+    it('rejects a schema it does not know', (ctx) => {
+      skipIfDiverges(ctx, 'stepConfigFns.schema');
+      using b = box(10, 10, 10);
+      expect(isOk(exportSTEPConfigured([{ shape: b }], { schema: 999 }))).toBe(false);
+    });
   });
 });

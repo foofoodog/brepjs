@@ -1,5 +1,174 @@
 # Changelog
 
+## [20.13.4](https://github.com/andymai/brepjs/compare/brepjs-v20.13.3...brepjs-v20.13.4) (2026-10-30)
+
+
+### Bug Fixes
+
+* **brepkit:** bound curved faces by their surface, not only their edges ([#2568](https://github.com/andymai/brepjs/issues/2568)) ([31fea5c](https://github.com/andymai/brepjs/commit/31fea5ccd4473acda346de08df0003ef0d751f9e))
+
+## [20.13.3](https://github.com/andymai/brepjs/compare/brepjs-v20.13.2...brepjs-v20.13.3) (2026-10-30)
+
+
+### Bug Fixes
+
+* **types:** export ChamferDistAngleEdge and regenerate the playground types ([#2565](https://github.com/andymai/brepjs/issues/2565)) ([544cc7f](https://github.com/andymai/brepjs/commit/544cc7f04f9524bb1f05cbf189b19da60bbf3f22))
+
+## [20.13.2](https://github.com/andymai/brepjs/compare/brepjs-v20.13.1...brepjs-v20.13.2) (2026-10-30)
+
+
+### Bug Fixes
+
+* **brepkit:** build the right shape or return unsupported where brepkit was silently wrong ([#2563](https://github.com/andymai/brepjs/issues/2563)) ([d4069b4](https://github.com/andymai/brepjs/commit/d4069b456391431fcd991556781961a98067febb))
+
+## [20.13.1](https://github.com/andymai/brepjs/compare/brepjs-v20.13.0...brepjs-v20.13.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **io:** keep every part of a model through STEP, IGES, and STL ([#2560](https://github.com/andymai/brepjs/issues/2560)) ([b0beb86](https://github.com/andymai/brepjs/commit/b0beb86e1015198f79e1bf042b5d9df46cc07811))
+
+## [20.13.0](https://github.com/andymai/brepjs/compare/brepjs-v20.12.15...brepjs-v20.13.0) (2026-10-30)
+
+
+### Features
+
+* **topology:** measure chamfers from a given face and keep their face history ([#2558](https://github.com/andymai/brepjs/issues/2558)) ([b084da9](https://github.com/andymai/brepjs/commit/b084da9be990573575f8f64a58941370be59c057))
+
+## [20.12.15](https://github.com/andymai/brepjs/compare/brepjs-v20.12.14...brepjs-v20.12.15) (2026-10-30)
+
+
+### Bug Fixes
+
+* **types:** match public types to runtime and align kernel rotation units ([#2556](https://github.com/andymai/brepjs/issues/2556)) ([92e929c](https://github.com/andymai/brepjs/commit/92e929c52e59df887abde917f7cee74339dddd85))
+
+## [20.12.14](https://github.com/andymai/brepjs/compare/brepjs-v20.12.13...brepjs-v20.12.14) (2026-10-30)
+
+
+### Performance Improvements
+
+* **io:** skip orientation repair for consistently wound meshes ([#2553](https://github.com/andymai/brepjs/issues/2553)) ([d59727f](https://github.com/andymai/brepjs/commit/d59727fe70d983b00545771bc357e5fbdf74f3ee))
+
+## [20.12.13](https://github.com/andymai/brepjs/compare/brepjs-v20.12.12...brepjs-v20.12.13) (2026-10-30)
+
+
+### Bug Fixes
+
+* **brepkit:** return unsupported instead of averaging asymmetric chamfers ([#2536](https://github.com/andymai/brepjs/issues/2536)) ([c84fd5c](https://github.com/andymai/brepjs/commit/c84fd5cd31028b758485667f6d5b0308aad8bc4d))
+
+## [20.12.12](https://github.com/andymai/brepjs/compare/brepjs-v20.12.11...brepjs-v20.12.12) (2026-10-30)
+
+
+### Bug Fixes
+
+* **topology:** copy pass-through boolean results and fix two measurements ([#2534](https://github.com/andymai/brepjs/issues/2534)) ([a82b545](https://github.com/andymai/brepjs/commit/a82b5458ba83e8ffb198a0bb4751e5c0febbd7af))
+
+## [20.12.11](https://github.com/andymai/brepjs/compare/brepjs-v20.12.10...brepjs-v20.12.11) (2026-10-29)
+
+
+### Bug Fixes
+
+* **occt-wasm:** write the STEP schema exportSTEPConfigured asks for ([#2529](https://github.com/andymai/brepjs/issues/2529)) ([1923250](https://github.com/andymai/brepjs/commit/1923250f79a4ef41366d0fb50df0d1b93dc8ad41))
+
+## [20.12.10](https://github.com/andymai/brepjs/compare/brepjs-v20.12.9...brepjs-v20.12.10) (2026-10-29)
+
+
+### Bug Fixes
+
+* **topology:** apply per-edge distance-angle chamfers from a callback ([4d1fa54](https://github.com/andymai/brepjs/commit/4d1fa54b0e242cd6338818f962dedd34223539c2))
+
+## [20.12.9](https://github.com/andymai/brepjs/compare/brepjs-v20.12.8...brepjs-v20.12.9) (2026-10-29)
+
+
+### Bug Fixes
+
+* **occt-wasm:** apply per-edge fillets, draft planes, and STEP units ([c6d9a61](https://github.com/andymai/brepjs/commit/c6d9a61cfafb3fb81d5c89783eae8d062b3a5a15))
+
+## [20.12.8](https://github.com/andymai/brepjs/compare/brepjs-v20.12.7...brepjs-v20.12.8) (2026-10-29)
+
+
+### Bug Fixes
+
+* **io:** import STL, OBJ, 3MF, and SVG as the shapes they describe ([5a4724a](https://github.com/andymai/brepjs/commit/5a4724a6618648d83cc41bf12d910894042bbf2e))
+
+## [20.12.7](https://github.com/andymai/brepjs/compare/brepjs-v20.12.6...brepjs-v20.12.7) (2026-10-29)
+
+
+### Bug Fixes
+
+* **2d:** handle split edges, shared edges, and nesting in 2D booleans ([6c475ec](https://github.com/andymai/brepjs/commit/6c475ec322f90d7506199bf21ce6c2c7a3f1db66))
+
+## [20.12.6](https://github.com/andymai/brepjs/compare/brepjs-v20.12.5...brepjs-v20.12.6) (2026-10-29)
+
+
+### Bug Fixes
+
+* **2d:** make offsets, reversal, bounds, and fits exact on occt-wasm ([4200b9e](https://github.com/andymai/brepjs/commit/4200b9e2f953a09623419453a4e77cb59fad27ae))
+
+## [20.12.5](https://github.com/andymai/brepjs/compare/brepjs-v20.12.4...brepjs-v20.12.5) (2026-10-29)
+
+
+### Bug Fixes
+
+* **operations:** correct 3D modeling, measurement, and type bugs ([54bc0d7](https://github.com/andymai/brepjs/commit/54bc0d707dc825684a694dd05da9a45381cc1af0))
+
+## [20.12.4](https://github.com/andymai/brepjs/compare/brepjs-v20.12.3...brepjs-v20.12.4) (2026-10-29)
+
+
+### Bug Fixes
+
+* **2d:** find crossings between arcs and other curves in 2D booleans ([69faf4f](https://github.com/andymai/brepjs/commit/69faf4f39d44624d7e11503588422fa52168285d))
+* **sketching:** extrude and revolve holed sketches functionally ([f786525](https://github.com/andymai/brepjs/commit/f786525739fa20227ba3769b946fb597775ae637))
+
+## [20.12.3](https://github.com/andymai/brepjs/compare/brepjs-v20.12.2...brepjs-v20.12.3) (2026-10-29)
+
+
+### Bug Fixes
+
+* **types:** keep the 3D dimension when querying a solid's faces ([0e72017](https://github.com/andymai/brepjs/commit/0e720170357212d787ae6e6fed833ec0b48289dd))
+
+## [20.12.2](https://github.com/andymai/brepjs/compare/brepjs-v20.12.1...brepjs-v20.12.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* **topology:** make shapeType work on every kernel and accept branded shapes ([c1a305b](https://github.com/andymai/brepjs/commit/c1a305b63b803bef6ea2708ddb5a9e8500039629))
+
+## [20.12.1](https://github.com/andymai/brepjs/compare/brepjs-v20.12.0...brepjs-v20.12.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* **types:** give finder callbacks the edge and face finder types ([8df3f3b](https://github.com/andymai/brepjs/commit/8df3f3b52ced9afe3669750ddd905d23a2168f8c))
+
+## [20.12.0](https://github.com/andymai/brepjs/compare/brepjs-v20.11.3...brepjs-v20.12.0) (2026-10-28)
+
+
+### Features
+
+* **text:** add setFallbackFont; brep engraves text without a font file ([#2480](https://github.com/andymai/brepjs/issues/2480)) ([cf05f21](https://github.com/andymai/brepjs/commit/cf05f2190741aac5bf7b737ee7f62a675b4b63af))
+
+## [20.11.3](https://github.com/andymai/brepjs/compare/brepjs-v20.11.2...brepjs-v20.11.3) (2026-10-28)
+
+
+### Bug Fixes
+
+* **api:** return INVALID_EDGE_SELECTION when fillet/chamfer args are swapped ([#2479](https://github.com/andymai/brepjs/issues/2479)) ([5547be6](https://github.com/andymai/brepjs/commit/5547be6c80e4e28a2029256d483996b45ea415fc))
+
+## [20.11.2](https://github.com/andymai/brepjs/compare/brepjs-v20.11.1...brepjs-v20.11.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* **occtwasm:** draw meshEdges lines from the face mesh ([#2475](https://github.com/andymai/brepjs/issues/2475)) ([f731fe0](https://github.com/andymai/brepjs/commit/f731fe0f5968e3a82b8c713f76de76de3ab8461a))
+
+## [20.11.1](https://github.com/andymai/brepjs/compare/brepjs-v20.11.0...brepjs-v20.11.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **io:** write R12 polylines and read polylines back from DXF ([#2470](https://github.com/andymai/brepjs/issues/2470)) ([a743c4f](https://github.com/andymai/brepjs/commit/a743c4f3aa65ba58073c43a3840f411be2ac1863))
+
 ## [20.11.0](https://github.com/andymai/brepjs/compare/brepjs-v20.10.3...brepjs-v20.11.0) (2026-10-25)
 
 

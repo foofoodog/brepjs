@@ -25,6 +25,7 @@ import {
   c2d,
   c2dBasis,
   bb2d,
+  edgeParamRange,
 } from './helpers.js';
 import { makeLineEdge, interpolatePoints, makeNonPlanarFace } from './constructionOps.js';
 import { iterShapes } from './topologyOps.js';
@@ -886,24 +887,14 @@ export function liftCurve2dToPlane(
         ? planeZ
         : [-planeZ[0], -planeZ[1], -planeZ[2]];
 
+      // One edge whatever the span, as the reference kernel builds it: brepkit
+      // sweeps an arc counterclockwise about `axis` from its start to its end,
+      // which names any span uniquely, and a full circle (start = end) becomes
+      // a closed edge.
       const bounds = bk2d.curveBounds(c);
-      let angularSpan: number;
-      if (c.__bk2d === 'trimmed') {
-        angularSpan = Math.abs((c as any).tEnd - (c as any).tStart);
-      } else {
-        angularSpan = 2 * Math.PI;
-      }
-      // Full/near-full circles -> 4 arcs; large arcs -> 2; small arcs -> 1
-      const nSegments = angularSpan > Math.PI ? 4 : angularSpan > Math.PI / 2 ? 2 : 1;
-      const segmentSpan = (bounds.last - bounds.first) / nSegments;
-      const edgeIds: number[] = [];
-      for (let seg = 0; seg < nSegments; seg++) {
-        const [su, sv] = bk2d.evaluateCurve2d(c, bounds.first + seg * segmentSpan);
-        const [eu, ev] = bk2d.evaluateCurve2d(c, bounds.first + (seg + 1) * segmentSpan);
-        edgeIds.push(bk.makeCircleArc3d(...lift(su, sv), ...lift(eu, ev), ...center3d, ...axis));
-      }
-      if (edgeIds.length === 1) return edgeHandle(wasmIndex(edgeIds, 0));
-      return wireHandle(bk.makeWire(edgeIds, false));
+      const [su, sv] = bk2d.evaluateCurve2d(c, bounds.first);
+      const [eu, ev] = bk2d.evaluateCurve2d(c, bounds.last);
+      return edgeHandle(bk.makeCircleArc3d(...lift(su, sv), ...lift(eu, ev), ...center3d, ...axis));
     }
 
     // Exact ellipse arcs: EdgeCurve::Ellipse edges via makeEllipseArc3d.
@@ -1093,9 +1084,7 @@ export function extractCurve2dFromEdge(
   const eid = unwrap(edge, 'edge');
   const fid = unwrap(face, 'face');
 
-  const params = bk.getEdgeCurveParameters(eid);
-  const tMin = params[0] ?? 0;
-  const tMax = params[1] ?? 1;
+  const [tMin, tMax] = edgeParamRange(bk, eid);
 
   // Sample the 3D edge curve and project onto the face's UV space.
   // Uses uvFromPoint for proper projection on any surface type (not just planar).
@@ -1178,9 +1167,7 @@ export function fillSurface(
       const curveLengths: number[] = [];
       for (const edge of wireEdges) {
         const edgeId = unwrap(edge, 'edge');
-        const params = bk.getEdgeCurveParameters(edgeId);
-        const tMin = wasmIndex(params, 0);
-        const tMax = wasmIndex(params, 1);
+        const [tMin, tMax] = edgeParamRange(bk, edgeId);
         const N = 10;
         const pts: number[] = [];
         for (let i = 0; i <= N; i++) {

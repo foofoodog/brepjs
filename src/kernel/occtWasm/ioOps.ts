@@ -5,8 +5,9 @@
  */
 
 import type { KernelShape, KernelType, StepAssemblyPart } from '@/kernel/types.js';
-import type { OcctKernelWasm, OcctWasmModule } from './occtWasmTypes.js';
-import { handle, unwrap, wrapResult } from './helpers.js';
+import type { OcctKernelWasm, OcctWasmHandle, OcctWasmModule } from './occtWasmTypes.js';
+import { handle, needsOcctWasm59, needsOcctWasm510, unwrap, wrapResult } from './helpers.js';
+import { UnsupportedKernelOperationError } from '@/kernel/unsupported.js';
 import {
   buildAsciiSTL,
   buildBinarySTL,
@@ -102,16 +103,147 @@ type MeshFn = (
   faceGroups: ReadonlyArray<{ start: number; count: number; faceHash: number }>;
 };
 
+// Millimeters per unit, for every length unit occt-wasm's STEP writer accepts.
+const MM_PER_UNIT: Readonly<Record<string, number>> = {
+  mm: 1,
+  millimeter: 1,
+  millimetre: 1,
+  cm: 10,
+  centimeter: 10,
+  centimetre: 10,
+  m: 1000,
+  meter: 1000,
+  metre: 1000,
+  km: 1e6,
+  kilometer: 1e6,
+  kilometre: 1e6,
+  in: 25.4,
+  inch: 25.4,
+  ft: 304.8,
+  foot: 304.8,
+  feet: 304.8,
+  mi: 1609344,
+  mile: 1609344,
+  mil: 0.0254,
+  thou: 0.0254,
+  um: 1e-3,
+  micron: 1e-3,
+  micrometer: 1e-3,
+  micrometre: 1e-3,
+  uin: 2.54e-5,
+  microinch: 2.54e-5,
+};
+
+interface StepUnitOptions {
+  unit?: string | undefined;
+  modelUnit?: string | undefined;
+}
+
+interface StepUnits {
+  /** The unit the file's lengths are written in. */
+  readonly write: string;
+  /** Factor taking the shapes' numbers to millimeters. */
+  readonly modelScale: number;
+  /** occt-wasm's name for the application protocol, or '' for its default (AP214). */
+  readonly schema: string;
+}
+
+// brepjs names a STEP application protocol by its AP number.
+const STEP_SCHEMAS: Readonly<Record<number, string>> = { 203: 'AP203', 214: 'AP214', 242: 'AP242' };
+
+function stepSchemaName(schema: number | undefined): string {
+  if (schema === undefined) return '';
+  const name = STEP_SCHEMAS[schema];
+  if (name === undefined) {
+    throw new Error(`occt-wasm: unknown STEP schema ${schema} (expected 203, 214, or 242)`);
+  }
+  return name;
+}
+
+function mmPerUnit(unit: string): number {
+  const mm = MM_PER_UNIT[unit.toLowerCase()];
+  if (mm === undefined) throw new Error(`occt-wasm: unknown STEP length unit '${unit}'`);
+  return mm;
+}
+
+/**
+ * brepjs writes lengths in `unit` and reads the shapes as `modelUnit`, which
+ * defaults to `unit` (so `unit` alone relabels and does not scale). occt-wasm
+ * reads shapes as millimeters and scales them into the unit written, so a
+ * model in another unit is scaled to millimeters first.
+ */
+function resolveStepUnits(
+  options: (StepUnitOptions & { schema?: number | undefined }) | undefined
+): StepUnits {
+  const write = options?.unit ?? options?.modelUnit ?? 'mm';
+  return {
+    write,
+    modelScale: mmPerUnit(options?.modelUnit ?? write),
+    schema: stepSchemaName(options?.schema),
+  };
+}
+
+interface StepWriters {
+  /** occt-wasm >= 5.10: unit and application protocol. */
+  readonly withOptions: ((id: number, unit: string, schema: string) => string) | undefined;
+  /** occt-wasm >= 5.9: unit only. */
+  readonly withUnit: ((id: number, unit: string) => string) | undefined;
+  readonly inMillimeters: (id: number) => string;
+}
+
+/** The newest writer `units` needs, else an error naming the occt-wasm release that has it. */
+function stepWriter(writers: StepWriters, units: StepUnits): (id: number) => string {
+  const { withOptions, withUnit, inMillimeters } = writers;
+  if (units.schema) {
+    if (!withOptions) throw needsOcctWasm510(`STEP export as ${units.schema}`);
+    return (id) => withOptions(id, units.write, units.schema);
+  }
+  if (withUnit) return (id) => withUnit(id, units.write);
+  if (mmPerUnit(units.write) === 1) return inMillimeters;
+  throw needsOcctWasm59(`STEP export in '${units.write}'`);
+}
+
+/** Run `use` on `id` scaled by `factor` about the origin, releasing the scaled copy. */
+function withScaled<T>(k: OcctKernelWasm, id: number, factor: number, use: (id: number) => T): T {
+  if (factor === 1) return use(id);
+  const scaled = k.scale(id, 0, 0, 0, factor);
+  try {
+    return use(scaled);
+  } finally {
+    k.release(scaled);
+  }
+}
+
+/** One STEP file holding every shape (as a compound when there are several). */
+function writeStepShapes(
+  k: OcctKernelWasm,
+  makeCompound: CompoundFn,
+  shapes: KernelShape[],
+  units: StepUnits
+): string {
+  const write = stepWriter(
+    {
+      withOptions: k.exportStepWithOptions?.bind(k),
+      withUnit: k.exportStepWithUnit?.bind(k),
+      inMillimeters: (id) => k.exportStep(id),
+    },
+    units
+  );
+  if (shapes.length === 1) return withScaled(k, unwrap(shapes[0]), units.modelScale, write);
+  const compoundId = unwrap(makeCompound(shapes));
+  try {
+    return withScaled(k, compoundId, units.modelScale, write);
+  } finally {
+    k.release(compoundId);
+  }
+}
+
 export function exportSTEP(
   k: OcctKernelWasm,
   makeCompound: CompoundFn,
   shapes: KernelShape[]
 ): string {
-  if (shapes.length === 1) {
-    return k.exportStep(unwrap(shapes[0]));
-  }
-  const compound = makeCompound(shapes);
-  return k.exportStep(unwrap(compound));
+  return writeStepShapes(k, makeCompound, shapes, resolveStepUnits(undefined));
 }
 
 export function exportSTL(
@@ -163,32 +295,32 @@ export function exportIGES(
   makeCompound: CompoundFn,
   shapes: KernelShape[]
 ): string {
+  const exportIges = k.exportIges?.bind(k);
+  if (!exportIges)
+    throw new UnsupportedKernelOperationError('occt-wasm: exportIGES is unsupported');
   if (shapes.length === 1) {
-    return k.exportIges(unwrap(shapes[0]));
+    return exportIges(unwrap(shapes[0]));
   }
   const compound = makeCompound(shapes);
-  return k.exportIges(unwrap(compound));
+  return exportIges(unwrap(compound));
 }
 
 export function importIGES(k: OcctKernelWasm, data: string | ArrayBuffer): KernelShape[] {
+  const importIges = k.importIges?.bind(k);
+  if (!importIges)
+    throw new UnsupportedKernelOperationError('occt-wasm: importIGES is unsupported');
   const str = typeof data === 'string' ? data : new TextDecoder().decode(data);
-  const id = k.importIges(str);
+  const id = importIges(str);
   return [wrapResult(k, id)];
 }
 
 export function exportSTEPAssembly(
   k: OcctKernelWasm,
-  Module: OcctWasmModule,
   parts: StepAssemblyPart[],
-  _options?: { unit?: string }
+  options?: { unit?: string }
 ): string {
   if (parts.length === 0) return '';
-  const doc = createXCAFDocument(k, Module, parts);
-  try {
-    return writeXCAFToSTEP(k, doc);
-  } finally {
-    doc.delete();
-  }
+  return writeXcafParts(k, parts, resolveStepUnits(options));
 }
 
 export function exportGLB(mesh: MeshFn, shape: KernelShape, tolerance: number): ArrayBuffer {
@@ -337,75 +469,240 @@ export function fromBREP(k: OcctKernelWasm, data: string): KernelShape {
   return wrapResult(k, k.fromBREP(data));
 }
 
-export function createXCAFDocument(
-  k: OcctKernelWasm,
-  _Module: OcctWasmModule,
-  shapes: Array<{
-    shape: KernelShape;
-    name: string;
-    color?: [number, number, number, number] | undefined;
-  }>
-): KernelType {
-  // occt-wasm exposes the XCAF document API as discrete xcaf* kernel methods
-  // (there is no single createXCAFDocument binding). Build the document by
-  // adding each shape as a free part, then tagging its name and color.
+interface XcafPart {
+  readonly shape: KernelShape;
+  readonly name?: string | undefined;
+  readonly color?: [number, number, number, number] | undefined;
+}
+
+/**
+ * A document handle that can rebuild its parts scaled for a model unit. The
+ * document's geometry can't be read back, so `retainedId` holds a compound of
+ * the parts (sharing their geometry, so it outlives the caller's handles) and
+ * `labels` their names and colors, in the same order.
+ */
+interface XcafDocHandle extends OcctWasmHandle {
+  readonly retainedId: number;
+  readonly labels: ReadonlyArray<Omit<XcafPart, 'shape'>>;
+}
+
+/**
+ * A new XCAF document holding each part as a free shape of its own, tagged
+ * with its name and color.
+ *
+ * XCAF stores a shape once. A part identical to an earlier one comes back as
+ * that part's label, and a part sharing another part's geometry (`TShape`) at
+ * another placement becomes a reference to it, which leaves the shared label
+ * no longer free, so it is not written. Either way there are fewer free shapes
+ * than parts; the document is then rebuilt once with those parts copied, and a
+ * copy has a `TShape` of its own. Copying the part whose label became shared,
+ * not the placed parts referencing it, keeps those sharing one geometry.
+ */
+function addXcafParts(k: OcctKernelWasm, parts: readonly XcafPart[]): number {
   const docId = k.xcafNewDocument();
-  for (const entry of shapes) {
-    const labelId = k.xcafAddShape(docId, unwrap(entry.shape));
+  let merged: ReadonlySet<number>;
+  try {
+    merged = mergedParts(addEachPart(k, docId, parts, new Set()), freeShapes(k, docId));
+  } catch (e) {
+    k.xcafClose(docId);
+    throw e;
+  }
+  if (merged.size === 0) return docId;
+  k.xcafClose(docId);
+  const rebuilt = k.xcafNewDocument();
+  try {
+    addEachPart(k, rebuilt, parts, merged);
+    return rebuilt;
+  } catch (e) {
+    k.xcafClose(rebuilt);
+    throw e;
+  }
+}
+
+/** Add `parts` in order, copying those in `copy`; the label each part went in as. */
+function addEachPart(
+  k: OcctKernelWasm,
+  docId: number,
+  parts: readonly XcafPart[],
+  copy: ReadonlySet<number>
+): number[] {
+  return parts.map((entry, i) => {
+    const labelId = addPartShape(k, docId, unwrap(entry.shape), copy.has(i));
     if (entry.name) k.xcafSetName(docId, labelId, entry.name);
     if (entry.color) {
       // Colors arrive 0-255 (see exporterFns); xcafSetColor wants 0-1.
       const [r, g, b] = entry.color;
       k.xcafSetColor(docId, labelId, r / 255, g / 255, b / 255);
     }
+    return labelId;
+  });
+}
+
+/**
+ * The parts that did not become a free shape of their own: a repeat of an
+ * earlier part's label, or a label no longer free. Each part adds at most one
+ * free shape, so as many free shapes as parts means none merged.
+ */
+function mergedParts(labels: readonly number[], free: readonly number[]): Set<number> {
+  const merged = new Set<number>();
+  if (free.length === labels.length) return merged;
+  const freeLabels = new Set(free);
+  const seen = new Set<number>();
+  labels.forEach((label, i) => {
+    if (seen.has(label) || !freeLabels.has(label)) merged.add(i);
+    seen.add(label);
+  });
+  return merged;
+}
+
+/** Add a shape, or a copy of it; the document keeps the copy's geometry once its slot is released. */
+function addPartShape(k: OcctKernelWasm, docId: number, shapeId: number, copy: boolean): number {
+  if (!copy) return k.xcafAddShape(docId, shapeId);
+  const copyId = k.copy(shapeId);
+  try {
+    return k.xcafAddShape(docId, copyId);
+  } finally {
+    k.release(copyId);
   }
+}
+
+/** The document's free shapes' label ids. */
+function freeShapes(k: OcctKernelWasm, docId: number): number[] {
+  const roots = k.xcafGetRootLabels(docId);
+  try {
+    const ids: number[] = [];
+    for (let i = 0; i < roots.size(); i++) ids.push(roots.get(i));
+    return ids;
+  } finally {
+    roots.delete();
+  }
+}
+
+function writeXcafDoc(k: OcctKernelWasm, docId: number, units: StepUnits): string {
+  const roots = k.xcafGetRootLabels(docId);
+  try {
+    if (roots.size() === 0) return '';
+  } finally {
+    roots.delete();
+  }
+  return stepWriter(
+    {
+      withOptions: k.xcafExportSTEPWithOptions?.bind(k),
+      withUnit: k.xcafExportSTEPWithUnit?.bind(k),
+      inMillimeters: (id) => k.xcafExportSTEP(id),
+    },
+    units
+  )(docId);
+}
+
+/** Write `parts` as one XCAF STEP file, scaling each into millimeters first if needed. */
+function writeXcafParts(k: OcctKernelWasm, parts: readonly XcafPart[], units: StepUnits): string {
+  const scaled: number[] = [];
+  try {
+    const placed = parts.map((part) => {
+      if (units.modelScale === 1) return part;
+      const id = k.scale(unwrap(part.shape), 0, 0, 0, units.modelScale);
+      scaled.push(id);
+      return { ...part, shape: id };
+    });
+    const docId = addXcafParts(k, placed);
+    try {
+      return writeXcafDoc(k, docId, units);
+    } finally {
+      k.xcafClose(docId);
+    }
+  } finally {
+    for (const id of scaled) k.release(id);
+  }
+}
+
+export function createXCAFDocument(
+  k: OcctKernelWasm,
+  makeCompound: CompoundFn,
+  shapes: Array<{
+    shape: KernelShape;
+    name: string;
+    color?: [number, number, number, number] | undefined;
+  }>
+): KernelType {
   // The doc id is carried in a handle; delete() is a noop for occt-wasm, so
-  // writeXCAFToSTEP closes the document after exporting.
-  // brepjs-patterns-disable: no-double-cast
-  return handle('compound', docId);
+  // writeXCAFToSTEP closes the document and releases the retained compound.
+  const retainedId = unwrap(makeCompound(shapes.map((s) => s.shape)));
+  try {
+    const doc: XcafDocHandle = {
+      ...handle('compound', addXcafParts(k, shapes)),
+      retainedId,
+      labels: shapes.map(({ name, color }) => ({ name, color })),
+    };
+    return doc;
+  } catch (e) {
+    k.release(retainedId);
+    throw e;
+  }
 }
 
 export function writeXCAFToSTEP(
   k: OcctKernelWasm,
   doc: KernelType,
-  _options?: { unit?: string | undefined; modelUnit?: string | undefined }
+  options?: StepUnitOptions
 ): string {
   const docId = unwrap(doc);
-  const roots = k.xcafGetRootLabels(docId);
-  const hasShapes = (() => {
-    try {
-      return roots.size() > 0;
-    } finally {
-      roots.delete();
-    }
-  })();
+  const { retainedId, labels } = doc as Partial<XcafDocHandle>;
   try {
-    return hasShapes ? k.xcafExportSTEP(docId) : '';
+    const units = resolveStepUnits(options);
+    if (units.modelScale === 1) return writeXcafDoc(k, docId, units);
+    // The document holds the shapes at model scale; rebuild it from the retained
+    // parts, scaled into millimeters.
+    if (retainedId === undefined || labels === undefined) {
+      throw new Error('occt-wasm: this XCAF document does not record its parts');
+    }
+    return writeScaledXcafParts(k, retainedId, labels, units);
   } finally {
     k.xcafClose(docId);
+    if (retainedId !== undefined) k.release(retainedId);
+  }
+}
+
+/** Scale the retained compound once and write its children as the labeled parts. */
+function writeScaledXcafParts(
+  k: OcctKernelWasm,
+  retainedId: number,
+  labels: ReadonlyArray<Omit<XcafPart, 'shape'>>,
+  units: StepUnits
+): string {
+  const scaledId = k.scale(retainedId, 0, 0, 0, units.modelScale);
+  const children = k.iterShapes(scaledId);
+  const childIds: number[] = [];
+  try {
+    for (let i = 0; i < children.size(); i++) childIds.push(children.get(i));
+    const parts = labels.map((label, i) => ({
+      ...label,
+      shape: handle('compound', childIds[i] ?? 0),
+    }));
+    return writeXcafParts(k, parts, { ...units, modelScale: 1 });
+  } finally {
+    children.delete();
+    for (const id of childIds) k.release(id);
+    k.release(scaledId);
   }
 }
 
 export function exportSTEPConfigured(
   k: OcctKernelWasm,
-  Module: OcctWasmModule,
-  shapes: Array<{
-    shape: KernelShape;
-    name?: string | undefined;
-    color?: [number, number, number, number] | undefined;
-  }>,
-  _options?: {
-    unit?: string | undefined;
-    modelUnit?: string | undefined;
-    schema?: number | undefined;
-  }
+  makeCompound: CompoundFn,
+  shapes: XcafPart[],
+  options?: StepUnitOptions & { schema?: number | undefined }
 ): string {
   if (shapes.length === 0) return '';
-  const named = shapes.map((s) => ({ shape: s.shape, name: s.name ?? '', color: s.color }));
-  const doc = createXCAFDocument(k, Module, named);
-  try {
-    return writeXCAFToSTEP(k, doc);
-  } finally {
-    doc.delete();
+  const units = resolveStepUnits(options);
+  // Like the opencascade adapter: plain STEP unless a part carries a name or color.
+  if (!shapes.some((s) => s.name || s.color)) {
+    return writeStepShapes(
+      k,
+      makeCompound,
+      shapes.map((s) => s.shape),
+      units
+    );
   }
+  return writeXcafParts(k, shapes, units);
 }

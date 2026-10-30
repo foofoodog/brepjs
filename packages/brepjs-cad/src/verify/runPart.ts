@@ -1,9 +1,11 @@
 import type { AnyShape, BrepError, GltfMaterial, MaterialFn, Result, ShapeMesh } from 'brepjs';
+import { basename } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadBrep, initOcctWasm, toolDir } from './brepjsRuntime.js';
+import { loadBrep, initOcctWasm, toolDir, type BrepNs } from './brepjsRuntime.js';
 import { runChecks } from './checks.js';
 import {
   evaluateExpected,
+  invalidExpectedValues,
   isExpectedDims,
   unknownExpectedKeys,
   type ExpectedDims,
@@ -91,6 +93,26 @@ function isResult(v: unknown): v is Result<AnyShape> {
   return typeof v === 'object' && v !== null && 'ok' in v && typeof v.ok === 'boolean';
 }
 
+// A fluent `shape(...)` chain returns its wrapper; the built shape is its `.val`.
+function unwrapFluent(v: unknown): unknown {
+  return typeof v === 'object' && v !== null && '__wrapped' in v ? (v as { val?: unknown }).val : v;
+}
+
+// Every brepjs shape is a handle carrying its kernel shape on `.wrapped`.
+function isShapeHandle(v: unknown): v is AnyShape {
+  return typeof v === 'object' && v !== null && 'wrapped' in v;
+}
+
+function describeValue(v: unknown): string {
+  if (Array.isArray(v)) return 'an array';
+  if (typeof v === 'object' && v !== null) {
+    // Object.create(null) and { constructor: null } have no usable constructor name.
+    const name: unknown = (v as { constructor?: { name?: unknown } | null }).constructor?.name;
+    return `a ${typeof name === 'string' && name !== '' ? name : 'plain object'}`;
+  }
+  return `a ${typeof v}`;
+}
+
 function isBrepError(v: unknown): v is BrepError {
   if (typeof v !== 'object' || v === null) return false;
   const rec = v as Record<string, unknown>;
@@ -165,6 +187,20 @@ function finalize(result: RunPartResult): RunPartResult {
   return result;
 }
 
+function solidsCoverShape(
+  brep: Pick<BrepNs, 'getFaces' | 'getEdges' | 'getVertices'>,
+  shape: AnyShape,
+  solids: readonly AnyShape[]
+): boolean {
+  const count = (get: (s: AnyShape) => readonly unknown[]) =>
+    solids.reduce((n, s) => n + get(s).length, 0) === get(shape).length;
+  return count(brep.getFaces) && count(brep.getEdges) && count(brep.getVertices);
+}
+
+function partName(modulePath: string): string {
+  return basename(modulePath).replace(/(\.brep)?\.(m?ts|tsx|m?js)$/, '');
+}
+
 export async function runPart(
   modulePath: string,
   opts: RunPartOptions = {}
@@ -190,7 +226,7 @@ export async function runPart(
     pushError(report, toErrorInfo('kernel init failed', e));
     return finalize({ shape: null, report });
   }
-  const { isOk, mesh, exportGlb, exportSTEP } = brep;
+  const { isOk, mesh, exportGlb, exportSTEP, exportSTEPConfigured, getSolids } = brep;
   let mod: { default?: unknown; expected?: unknown; materials?: unknown };
   try {
     mod = await loadPart(modulePath, opts.freshImport);
@@ -209,25 +245,39 @@ export async function runPart(
     pushError(report, toErrorInfo('part threw', e));
     return finalize({ shape: null, report });
   }
-  let shape: AnyShape | null;
+  let value: unknown = out;
   if (isResult(out)) {
     if (!isOk(out)) {
       pushError(report, toErrorInfo('part returned Err', out.error));
       return finalize({ shape: null, report });
     }
-    shape = out.value;
-  } else {
-    shape = out as AnyShape;
+    value = out.value;
   }
-  if (!shape) {
+  value = unwrapFluent(value);
+  if (!value) {
     pushError(report, { message: 'part produced no shape' });
     return finalize({ shape: null, report });
   }
+  if (!isShapeHandle(value)) {
+    pushError(report, {
+      message: `part returned ${describeValue(value)}, not a shape`,
+      code: 'PART_NOT_A_SHAPE',
+    });
+    return finalize({ shape: null, report });
+  }
+  const shape = value;
   // Push export errors into the report we actually return (runChecks's), so a failed export
   // surfaces as ok:false rather than being dropped.
   const result = runChecks(brep, shape, { metrics: Boolean(opts.metrics) });
   // Asserted dims: compare measured volume/area/bounds against the part's `export const expected`.
   // When present, every assertion must pass for `ok` (enforced by reportOk).
+  const invalidExpected = mod.expected === undefined ? [] : invalidExpectedValues(mod.expected);
+  if (invalidExpected.length > 0) {
+    pushError(result, {
+      message: `expected has values that aren't numbers, so none of its assertions ran: ${invalidExpected.join(', ')}.`,
+      code: 'EXPECTED_INVALID_VALUE',
+    });
+  }
   if (isExpectedDims(mod.expected)) {
     const expected: ExpectedDims = mod.expected;
     result.assertions = evaluateExpected(expected, result.measurements);
@@ -256,9 +306,28 @@ export async function runPart(
     }
   }
   if (opts.step) {
-    const r = exportSTEP(shape);
-    if (isOk(r)) step = await r.value.arrayBuffer();
-    else pushError(result, toErrorInfo('exportSTEP', r.error));
+    // Name the STEP products after the part file; unnamed, CAD tools list the model under
+    // OCCT's "Open CASCADE STEP translator" default. A multi-solid part exports one named
+    // product per solid: FreeCAD otherwise hands the file name to each solid and suffixes
+    // the container ("pi5-case002"). A project's older brepjs may lack the configured
+    // export, so fall back to the plain one.
+    if (typeof exportSTEPConfigured === 'function') {
+      const name = partName(modulePath);
+      const solids = getSolids(shape);
+      // Split only when the solids are the whole part: a free face, shell or wire alongside
+      // them would be dropped, so such a part exports whole under one name.
+      const parts =
+        solids.length > 1 && solidsCoverShape(brep, shape, solids)
+          ? solids.map((solid, i) => ({ shape: solid, name: `${name}-${i + 1}` }))
+          : [{ shape, name }];
+      const r = exportSTEPConfigured(parts);
+      if (isOk(r)) step = new TextEncoder().encode(r.value).buffer;
+      else pushError(result, toErrorInfo('exportSTEP', r.error));
+    } else {
+      const r = exportSTEP(shape);
+      if (isOk(r)) step = await r.value.arrayBuffer();
+      else pushError(result, toErrorInfo('exportSTEP', r.error));
+    }
   }
   return finalize({ shape, report: result, step, glb });
 }

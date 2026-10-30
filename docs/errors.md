@@ -22,7 +22,8 @@ type BrepErrorKind =
   | 'MODULE_INIT'
   | 'COMPUTATION'
   | 'IO'
-  | 'QUERY';
+  | 'QUERY'
+  | 'UNSUPPORTED';
 ```
 
 ## Handling Errors
@@ -68,9 +69,9 @@ Errors from kernel geometry operations.
 | `FUSE_FAILED`             | Boolean fuse operation failed      | See `error.suggestion`; try `autoHeal()` on inputs       |
 | `CUT_FAILED`              | Boolean cut operation failed       | See `error.suggestion`; ensure tool intersects base      |
 | `FILLET_FAILED`           | Fillet operation failed            | Reduce radius or check edges                             |
-| `FILLET_RESULT_NOT_3D`    | Fillet result is not a 3D shape    | Check input shape type                                   |
+| `FILLET_NOT_3D`           | Fillet result is not a 3D shape    | Check input shape type                                   |
 | `CHAMFER_FAILED`          | Chamfer operation failed           | Reduce distance or check edges                           |
-| `CHAMFER_RESULT_NOT_3D`   | Chamfer result is not a 3D shape   | Check input shape type                                   |
+| `CHAMFER_NOT_3D`          | Chamfer result is not a 3D shape   | Check input shape type                                   |
 | `SHELL_FAILED`            | Shell operation failed             | Check thickness vs geometry                              |
 | `SHELL_RESULT_NOT_3D`     | Shell result is not a 3D shape     | Check input shape type                                   |
 | `SHELL_NO_EFFECT`         | Wall too thick, input handed back  | Use a thinner wall                                       |
@@ -104,6 +105,7 @@ Input validation errors.
 | `INVALID_CHAMFER_DISTANCE` | Chamfer distance must be positive      | Use a positive distance value           |
 | `INVALID_THICKNESS`        | Shell thickness must be positive       | Use a positive thickness value          |
 | `NO_EDGES`                 | No edges found for fillet/chamfer      | Ensure shape has edges                  |
+| `INVALID_EDGE_SELECTION`   | Fillet/chamfer 2nd arg is not edges    | Call `fillet(shape, edges, radius)`     |
 | `NO_FACES`                 | No faces specified for shell           | Provide at least one face               |
 | `FACE_NOT_IN_SHAPE`        | A picked face belongs to another shape | Pick faces from the shape being edited  |
 | `ZERO_OFFSET`              | Offset distance cannot be zero         | Use a non-zero offset value             |
@@ -140,8 +142,6 @@ Type conversion and shape casting errors.
 | `INTERSECT_NOT_3D`       | Intersect did not produce a 3D shape     | Check input shapes                 |
 | `FUSE_ALL_NOT_3D`        | fuseAll did not produce a 3D shape       | Check input shapes                 |
 | `CUT_ALL_NOT_3D`         | cutAll did not produce a 3D shape        | Check input shapes                 |
-| `FILLET_NOT_3D`          | Fillet did not produce a 3D shape        | Check input shape                  |
-| `CHAMFER_NOT_3D`         | Chamfer did not produce a 3D shape       | Check input shape                  |
 | `SHELL_NOT_3D`           | Shell did not produce a 3D shape         | Check input shape                  |
 | `UNKNOWN_CURVE_TYPE`     | Unrecognized curve type                  | Check curve is valid               |
 | `UNKNOWN_SURFACE_TYPE`   | Unrecognized surface type                | Check surface is valid             |
@@ -164,7 +164,7 @@ Computational/algorithmic failures.
 | `BSPLINE_2D_FAILED`        | 2D B-spline approximation failed           | Check input points      |
 | `REPLAY_UNKNOWN_OP`        | Unknown operation type in history replay   | Register the operation  |
 | `REPLAY_STEP_NOT_FOUND`    | Step not found during history replay       | Check step ID exists    |
-| `REPLAY_OPERATION_FAILED`  | Operation failed during history replay     | Check operation inputs  |
+| `REPLAY_STEP_FAILED`       | Operation failed during history replay     | Check operation inputs  |
 | `MODIFY_STEP_NOT_FOUND`    | Step not found during history modification | Check step ID exists    |
 
 ### IO
@@ -183,17 +183,16 @@ File import/export errors.
 | `IGES_IMPORT_FAILED`   | IGES file import failed       | Check file format                 |
 | `SVG_IMPORT_FAILED`    | SVG import failed             | Check SVG string is valid         |
 | `SVG_EMPTY_PATH`       | SVG path produced no curves   | Check path d attribute            |
-| `SVG_PATH_FAILED`      | SVG path processing failed    | Check path syntax                 |
+| `SVG_PARSE_FAILED`     | SVG path parsing failed       | Check path syntax                 |
 | `SVG_NO_PATHS`         | No path elements found in SVG | Ensure SVG contains paths         |
 
 ### QUERY
 
 Shape query and finder errors.
 
-| Code                   | Description                      | Recovery                               |
-| ---------------------- | -------------------------------- | -------------------------------------- |
-| `FINDER_NOT_UNIQUE`    | Finder expected unique result    | Refine filters or remove unique option |
-| `SELECTION_NOT_UNIQUE` | Selection expected unique result | Refine selection criteria              |
+| Code                | Description                   | Recovery                               |
+| ------------------- | ----------------------------- | -------------------------------------- |
+| `FINDER_NOT_UNIQUE` | Finder expected unique result | Refine filters or remove unique option |
 
 ## Creating Custom Errors
 
@@ -214,4 +213,4 @@ function myOperation(value: number): Result<number> {
 2. **Read the message** - it often contains specific details
 3. **Check the cause** - it may contain the underlying exception
 4. **Verify inputs** - most errors result from invalid inputs
-5. **Check geometry validity** - use `isEmpty()` to verify shapes
+5. **Check geometry validity** - use `isValid()` to verify shapes

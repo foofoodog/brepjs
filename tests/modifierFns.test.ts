@@ -1,12 +1,13 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion -- test array indexing */
 import { describe, expect, it, beforeAll } from 'vitest';
 import { initKernel, currentKernel } from './setup.js';
-import { skipIfDiverges } from './helpers/kernelDivergences.js';
+import { shouldSkipSuite, skipIfDiverges } from './helpers/kernelDivergences.js';
 import {
   sketchRectangle,
   box,
   sphere,
   castShape,
+  isShape3D,
   isSolid,
   getEdges,
   getFaces,
@@ -33,9 +34,16 @@ import {
   translate,
   removeFaces,
   shape,
+  curveStartPoint,
+  chamferWithEvolution,
+  registerKernel,
+  withKernel,
 } from '@/index.js';
-import { shell as shellFn } from '@/topology/modifierFns.js';
-import type { Edge, Face, Shape3D } from '@/core/shapeTypes.js';
+import { fillet as filletFn, shell as shellFn } from '@/topology/modifierFns.js';
+import { UnsupportedKernelOperationError } from '@/kernel/unsupported.js';
+import { castResultShape } from '@/core/shapeTypes.js';
+import type { Result } from '@/index.js';
+import type { Edge, Face, Shape3D, ValidSolid } from '@/core/shapeTypes.js';
 
 beforeAll(async () => {
   await initKernel();
@@ -448,9 +456,11 @@ describe('defeature', () => {
     expect(unwrap(measureVolume(filleted))).toBeLessThan(8000);
 
     const kernel = getKernel();
-    const volumes = getFaces(filleted).map((f) =>
-      unwrap(measureVolume(castShape(kernel.defeature(filleted.wrapped, [f.wrapped]))))
-    );
+    const volumes = getFaces(filleted).map((f) => {
+      const defeatured = castShape(kernel.defeature(filleted.wrapped, [f.wrapped]));
+      if (!isShape3D(defeatured)) throw new Error('expected a 3D shape');
+      return unwrap(measureVolume(defeatured));
+    });
 
     // Only the fillet surface is a removable feature; every other face is left
     // untouched, so exactly one removal restores the original box.
@@ -547,13 +557,161 @@ describe('chamfer with callback returning null or array', () => {
     expect(unwrapErr(result).code).toBe('CHAMFER_NO_EDGES');
   });
 
-  it('callback returning [d1, d2] applies asymmetric chamfer', () => {
+  it('callback returning [d1, d2] applies asymmetric chamfer', (ctx) => {
+    skipIfDiverges(ctx, 'chamferAngle.meetingEdges');
     const b = box(10, 10, 10);
     const edges = getEdges(b);
     const result = chamfer(b, edges.slice(0, 2), () => [1, 2]);
     expect(isOk(result)).toBe(true);
     const vol = unwrap(measureVolume(unwrap(result)));
     expect(vol).toBeLessThan(1000);
+  });
+});
+
+// The four vertical edges of a 10 mm cube share no vertex, so each one removes
+// its own prism: (1 - π/4)·r²·10 for a fillet of radius r, d1·d2/2·10 for a
+// chamfer set back d1 and d2.
+describe('per-edge fillet radii and chamfer distances', () => {
+  const FILLET_LOSS = 1 - Math.PI / 4;
+
+  function verticalEdges(solid: Shape3D): Edge[] {
+    return getEdges(solid).filter((e) => getBounds(e).zMax - getBounds(e).zMin > 5);
+  }
+
+  /** The value for a vertical edge on the x = 0 side, or on the x = 10 side. */
+  function bySide<V>(nearSide: V, farSide: V): (edge: Edge) => V {
+    return (edge) => (getBounds(edge).xMin < 5 ? nearSide : farSide);
+  }
+
+  it('fillets each edge at its own radius', (ctx) => {
+    skipIfDiverges(ctx, 'modifierFns.perEdgeValues');
+    using b = box(10, 10, 10);
+    using rounded = unwrap(fillet(b, verticalEdges(b), bySide(1, 3)));
+    expect(unwrap(measureVolume(rounded))).toBeCloseTo(1000 - FILLET_LOSS * 10 * 20, 6);
+  });
+
+  it('fillets each edge at its own radius without tracking evolution', (ctx) => {
+    skipIfDiverges(ctx, 'modifierFns.perEdgeValues');
+    using b = box(10, 10, 10);
+    using rounded = unwrap(filletFn(b, verticalEdges(b), bySide(1, 3), { trackEvolution: false }));
+    expect(unwrap(measureVolume(rounded))).toBeCloseTo(1000 - FILLET_LOSS * 10 * 20, 6);
+  });
+
+  it('tapers a fillet from the start radius at the edge start to the end radius', (ctx) => {
+    skipIfDiverges(ctx, 'modifierFns.perEdgeValues');
+    using b = box(10, 10, 10);
+    const edge = verticalEdges(b)[0]!;
+    using tapered = unwrap(fillet(b, [edge], [1, 3]));
+    const vol = unwrap(measureVolume(tapered));
+    expect(vol).toBeLessThan(1000 - FILLET_LOSS * 10 * 1);
+    expect(vol).toBeGreaterThan(1000 - FILLET_LOSS * 10 * 9);
+    // Each cap keeps its square less the corner its end radius rounds off.
+    const startZ = curveStartPoint(edge)[2];
+    const startCap = unwrap(measureArea(faceAtHeight(tapered, startZ)));
+    const endCap = unwrap(measureArea(faceAtHeight(tapered, 10 - startZ)));
+    expect(startCap).toBeCloseTo(100 - FILLET_LOSS * 1, 6);
+    expect(endCap).toBeCloseTo(100 - FILLET_LOSS * 9, 6);
+  });
+
+  it('sets an asymmetric chamfer back by both distances', (ctx) => {
+    skipIfDiverges(ctx, 'modifierFns.asymmetricChamferVolume');
+    using b = box(10, 10, 10);
+    using chamfered = unwrap(chamfer(b, [verticalEdges(b)[0]!], [1, 2]));
+    expect(unwrap(measureVolume(chamfered))).toBeCloseTo(1000 - 10, 6);
+  });
+
+  it('chamfers each edge at its own distances', (ctx) => {
+    skipIfDiverges(ctx, 'modifierFns.perEdgeChamfers');
+    using b = box(10, 10, 10);
+    using symmetric = unwrap(chamfer(b, verticalEdges(b), bySide(1, 2)));
+    expect(unwrap(measureVolume(symmetric))).toBeCloseTo(1000 - 10 * (0.5 + 0.5 + 2 + 2), 6);
+    const mixed = bySide<number | [number, number]>([1, 2], 1);
+    using both = unwrap(chamfer(b, verticalEdges(b), mixed));
+    expect(unwrap(measureVolume(both))).toBeCloseTo(1000 - 10 * (1 + 1 + 0.5 + 0.5), 6);
+  });
+
+  it("chamfers each edge at its own distances through the kernel's chamfer", (ctx) => {
+    skipIfDiverges(ctx, 'modifierFns.perEdgeChamfers');
+    using b = box(10, 10, 10);
+    const edges = verticalEdges(b);
+    const near = new Set(edges.filter((e) => getBounds(e).xMin < 5).map((e) => e.wrapped));
+    using chamfered = castResultShape(
+      getKernel().chamfer(
+        b.wrapped,
+        edges.map((e) => e.wrapped),
+        (edge) => (near.has(edge) ? 1 : 2)
+      )
+    );
+    expect(unwrap(measureVolume(chamfered as Shape3D))).toBeCloseTo(1000 - 10 * 5, 6);
+  });
+
+  // brepkit takes one fillet radius or chamfer setback per call.
+  it.skipIf(currentKernel !== 'brepkit')(
+    'returns UNSUPPORTED_CAPABILITY for different values on different edges, leaving the input intact',
+    () => {
+      using b = box(10, 10, 10);
+      const edges = verticalEdges(b);
+      for (const result of [
+        fillet(b, edges, bySide(1, 3)),
+        chamfer(b, edges, bySide(1, 2)),
+      ] as Array<Result<unknown>>) {
+        expect(unwrapErr(result).code).toBe('UNSUPPORTED_CAPABILITY');
+      }
+      using rounded = unwrap(fillet(b, edges, 2));
+      expect(unwrap(measureVolume(rounded))).toBeCloseTo(1000 - FILLET_LOSS * 4 * 10 * 4, 6);
+    }
+  );
+});
+
+describe('chamfer distances the kernel cannot build', () => {
+  function verticalEdges(solid: Shape3D): Edge[] {
+    return getEdges(solid).filter((e) => getBounds(e).zMax - getBounds(e).zMin > 5);
+  }
+
+  /** A kernel that forwards to the active one except for `overrides`. */
+  function registerStubKernel(id: string, overrides: Record<string, unknown>): void {
+    const base = getKernel();
+    registerKernel(
+      id,
+      new Proxy(base, {
+        get(target, prop) {
+          if (Object.hasOwn(overrides, prop)) return overrides[prop as string];
+          const value: unknown = Reflect.get(target, prop, target);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      })
+    );
+  }
+
+  it('returns UNSUPPORTED when the kernel rejects the distances', () => {
+    registerStubKernel('no-asymmetric-chamfer', {
+      chamferWithHistory: () => {
+        throw new UnsupportedKernelOperationError('stub: no asymmetric chamfer');
+      },
+    });
+    using b = box(10, 10, 10);
+    const edges = verticalEdges(b);
+    const results: Array<Result<unknown>> = withKernel('no-asymmetric-chamfer', () => [
+      chamfer(b, edges, [1, 2]),
+      chamfer(b, edges, () => [1, 2]),
+      chamferWithEvolution(b, edges, [1, 2]),
+    ]);
+    for (const result of results) {
+      const error = unwrapErr(result);
+      expect(error.kind).toBe('UNSUPPORTED');
+      expect(error.code).toBe('UNSUPPORTED_CAPABILITY');
+      expect(error.message).toContain('stub: no asymmetric chamfer');
+    }
+  });
+
+  it('chamfers two different distances through the evolution-tracking path too', () => {
+    using b = box(10, 10, 10);
+    const [edge] = verticalEdges(b);
+    if (!edge) throw new Error('box has no vertical edge');
+    using tracked = unwrap(chamferWithEvolution(b, [edge], [1, 2])).shape;
+    expect(unwrap(measureVolume(tracked))).toBeCloseTo(1000 - 10, 6);
+    using equal = unwrap(chamfer(b, [edge], [1, 1]));
+    expect(unwrap(measureVolume(equal))).toBeCloseTo(1000 - 5, 6);
   });
 });
 
@@ -564,7 +722,7 @@ describe('chamfer with callback returning null or array', () => {
 describe('draft validation errors', () => {
   it('rejects empty faces list', () => {
     const b = box(10, 10, 10);
-    const result = draft(b, [], [0, 0, 1], [0, 0, 0], 5);
+    const result = draft(b, [], { pullDirection: [0, 0, 1], neutralPlane: [0, 0, 0], angle: 5 });
     expect(isErr(result)).toBe(true);
     expect(unwrapErr(result).code).toBe('DRAFT_NO_FACES');
   });
@@ -600,59 +758,103 @@ describe('variableFillet validation', () => {
   });
 });
 
-// occt-wasm gained a linear (<=2-point) variable fillet: its primitive takes an
-// edge arena id (the caller passes a stable hash to resolve) and wraps the result
-// in a single-solid compound (uniform fillet returns a bare solid). Gated to
-// occt-wasm — occt (opencascade.js) doesn't implement it and brepkit's variable
-// fillet reports a physically-impossible volume (its own divergence).
-describe.skipIf(currentKernel !== 'occt-wasm')('variableFillet on occt-wasm', () => {
-  it('applies a linear (2-point) taper, yielding a valid smaller solid', () => {
-    const b = box(10, 10, 10);
-    const result = variableFillet(b, getEdges(b)[0]!, [
-      { param: 0, radius: 1 },
-      { param: 1, radius: 3 },
-    ]);
-    expect(isOk(result)).toBe(true);
-    const solid = unwrap(result);
-    expect(isSolid(solid)).toBe(true);
-    const vol = unwrap(measureVolume(solid));
-    expect(vol).toBeLessThan(1000);
-    expect(vol).toBeGreaterThan(900);
-  });
+// occt-wasm's variable fillet takes a linear (<=2-point) profile and brepkit
+// only a constant one; neither takes a multi-point profile. The opencascade.js
+// kernel does not implement it.
+describe.skipIf(currentKernel !== 'occt-wasm' && currentKernel !== 'brepkit')(
+  'variableFillet',
+  () => {
+    it('applies a linear (2-point) taper, yielding a valid smaller solid', (ctx) => {
+      skipIfDiverges(ctx, 'modifierFns.variableFilletRadius');
+      const b = box(10, 10, 10);
+      const result = variableFillet(b, getEdges(b)[0]!, [
+        { param: 0, radius: 1 },
+        { param: 1, radius: 3 },
+      ]);
+      expect(isOk(result)).toBe(true);
+      const solid = unwrap(result);
+      expect(isSolid(solid)).toBe(true);
+      const vol = unwrap(measureVolume(solid));
+      expect(vol).toBeLessThan(1000);
+      expect(vol).toBeGreaterThan(900);
+    });
 
-  it('a constant profile matches a uniform fillet of the same radius', () => {
-    const b = box(10, 10, 10);
-    const edge = getEdges(b)[0]!;
-    const variable = variableFillet(b, edge, [{ param: 0, radius: 2 }]);
-    const uniform = fillet(b, [edge], 2);
-    expect(isOk(variable)).toBe(true);
-    expect(isOk(uniform)).toBe(true);
-    expect(unwrap(measureVolume(unwrap(variable)))).toBeCloseTo(
-      unwrap(measureVolume(unwrap(uniform))),
-      3
+    it('a constant profile matches a uniform fillet of the same radius', () => {
+      const b = box(10, 10, 10);
+      const edge = getEdges(b)[0]!;
+      const variable = variableFillet(b, edge, [{ param: 0, radius: 2 }]);
+      const uniform = fillet(b, [edge], 2);
+      expect(isOk(variable)).toBe(true);
+      expect(isOk(uniform)).toBe(true);
+      expect(unwrap(measureVolume(unwrap(variable)))).toBeCloseTo(
+        unwrap(measureVolume(unwrap(uniform))),
+        3
+      );
+    });
+
+    it('rounds an edge at the exact constant radius from a one- or two-point profile', () => {
+      using b = box(40, 30, 20);
+      const edge = getEdges(b).find((e) => {
+        const { yMax, zMin } = getBounds(e);
+        return yMax < 1e-9 && zMin > 20 - 1e-9;
+      });
+      if (!edge) throw new Error('box has no top edge at y = 0');
+      const exact = 24000 - (1 - Math.PI / 4) * 4 * 4 * 40;
+      for (const radii of [
+        [{ param: 0, radius: 4 }],
+        [
+          { param: 0, radius: 4 },
+          { param: 1, radius: 4 },
+        ],
+      ]) {
+        using rounded = unwrap(variableFillet(b, edge, radii));
+        expect(unwrap(measureVolume(rounded))).toBeCloseTo(exact, 6);
+      }
+    });
+
+    it('rejects a multi-point (>2) profile as unsupported', () => {
+      const b = box(10, 10, 10);
+      const result = variableFillet(b, getEdges(b)[0]!, [
+        { param: 0, radius: 1 },
+        { param: 0.5, radius: 5 },
+        { param: 1, radius: 1 },
+      ]);
+      expect(unwrapErr(result).code).toBe('UNSUPPORTED_CAPABILITY');
+    });
+
+    // Runs only where modifierFns.variableFilletRadius is a registered divergence (brepkit).
+    it.skipIf(!shouldSkipSuite('modifierFns.variableFilletRadius'))(
+      'returns UNSUPPORTED_CAPABILITY for a radius that varies along the edge',
+      () => {
+        using b = box(10, 10, 10);
+        const edge = getEdges(b)[0]!;
+        const results: Array<Result<unknown>> = [
+          variableFillet(b, edge, [
+            { param: 0, radius: 1 },
+            { param: 1, radius: 3 },
+          ]),
+          fillet(b, [edge], [1, 3]),
+          fillet(b, [edge], () => [1, 3]),
+          filletFn(b, [edge], [1, 3], { trackEvolution: false }),
+        ];
+        for (const result of results) {
+          const error = unwrapErr(result);
+          expect(error.kind).toBe('UNSUPPORTED');
+          expect(error.code).toBe('UNSUPPORTED_CAPABILITY');
+        }
+      }
     );
-  });
-
-  it('rejects a multi-point (>2) profile as unsupported', () => {
-    const b = box(10, 10, 10);
-    const result = variableFillet(b, getEdges(b)[0]!, [
-      { param: 0, radius: 1 },
-      { param: 0.5, radius: 5 },
-      { param: 1, radius: 1 },
-    ]);
-    expect(isErr(result)).toBe(true);
-    expect(unwrapErr(result).code).toBe('VARIABLE_FILLET_FAILED');
-  });
-});
+  }
+);
 
 // ---------------------------------------------------------------------------
 // Null-shape pre-validation tests
 // ---------------------------------------------------------------------------
 
 describe('null-shape pre-validation', () => {
-  function makeNullShape(): Shape3D {
+  function makeNullShape(): ValidSolid {
     const oc = getKernel().oc;
-    return createSolid(new oc.TopoDS_Solid());
+    return createSolid(new oc.TopoDS_Solid()) as ValidSolid;
   }
 
   it('fillet rejects null shape', (ctx) => {

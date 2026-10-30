@@ -13,6 +13,8 @@ import {
   meshBounds,
   sectionPlane,
   findElementAt,
+  styleElements,
+  type ElementStyle,
   type FaceInfo,
   type Projection,
   type SectionAxis,
@@ -20,8 +22,16 @@ import {
   type ViewName,
 } from 'brepjs-viewer';
 import { Html } from '@react-three/drei';
+import { useThree } from '@react-three/fiber';
 import { useModel, type PreviewInfo } from './src/useModel.js';
-import { installScreenshotApi, onScene, markReady, type Mark } from './src/screenshotApi.js';
+import {
+  installCameraReader,
+  installScreenshotApi,
+  onScene,
+  markReady,
+  readCamera,
+  type Mark,
+} from './src/screenshotApi.js';
 
 // Kernel-anchored Set-of-Marks: numbered badges drawn at 3D feature points (drei <Html> projects them
 // per-view and renders DOM over the canvas, which the screenshot captures). Same id → same feature
@@ -49,6 +59,73 @@ function Marks({ marks }: { marks: readonly Mark[] }) {
       ))}
     </>
   );
+}
+
+// Reads the default camera at call time: drei swaps in an orthographic one for plans.
+function CameraProbe() {
+  const get = useThree((s) => s.get);
+  useEffect(() => {
+    installCameraReader(() => readCamera(get().camera));
+  }, [get]);
+  return null;
+}
+
+/** What brep-mcp's show_model, select_elements and show_elements send a preview page. */
+interface PreviewScene {
+  readonly style?: ElementStyle;
+  readonly selection?: readonly string[];
+  readonly frame?: readonly string[];
+}
+
+const SELECTED = '#ffd400';
+
+function usePreviewScene(): PreviewScene | null {
+  const [scene, setScene] = useState<PreviewScene | null>(null);
+  useEffect(() => {
+    if (!new URLSearchParams(window.location.search).has('preview')) return;
+    let cancelled = false;
+    const load = async (): Promise<void> => {
+      try {
+        const r = await fetch('/__preview/scene');
+        if (r.ok && !cancelled) setScene((await r.json()) as PreviewScene);
+      } catch {
+        // No scene route (an older server) leaves the page unstyled.
+      }
+    };
+    void load();
+    const events = new EventSource('/__preview/events');
+    // Every ping but a model-only one refreshes the scene: the bare {seq} a reconnect sends may
+    // follow changes missed while the stream was down.
+    events.onmessage = (e: MessageEvent<string>) => {
+      try {
+        const msg = JSON.parse(e.data) as { scene?: boolean; model?: boolean };
+        if (msg.model !== true || msg.scene === true) void load();
+      } catch {
+        void load();
+      }
+    };
+    return () => {
+      cancelled = true;
+      events.close();
+    };
+  }, []);
+  return scene;
+}
+
+/** The scene's style with its selection drawn first, or null when it asks for nothing. */
+function sceneStyle(scene: PreviewScene | null): ElementStyle | null {
+  if (scene === null) return null;
+  const selection = scene.selection ?? [];
+  if (!scene.style && selection.length === 0) return null;
+  return {
+    layers: [
+      ...(selection.length > 0
+        ? [{ keyPaths: selection, color: SELECTED, mode: 'solid' as const }]
+        : []),
+      ...(scene.style?.layers ?? []),
+    ],
+    others: scene.style?.others ?? 'solid',
+  };
 }
 
 // The agent snapshot pipeline screenshots this same page, so it loads with ?ui=0 to
@@ -122,6 +199,8 @@ function App() {
   const [sectionPos, setSectionPos] = useState(0);
   const [sectionFlip, setSectionFlip] = useState(false);
   const [marks, setMarks] = useState<readonly Mark[]>([]);
+  const [elementStyle, setElementStyle] = useState<ElementStyle | null>(null);
+  const scene = usePreviewScene();
   const [selectedElement, setSelectedElement] = useState<string | null>(null);
   const preview: PreviewInfo | undefined = state.status === 'ready' ? state.preview : undefined;
   const handleTrianglePick = useCallback(
@@ -152,11 +231,14 @@ function App() {
           const i = c.section.axis === 'x' ? 0 : c.section.axis === 'y' ? 1 : 2;
           setSectionAxis(c.section.axis);
           setSectionPos(bounds.min[i] + c.section.frac * (bounds.max[i] - bounds.min[i]));
+          setSectionFlip(c.section.flip ?? false);
           setSectionOn(true);
         } else {
           setSectionOn(false);
         }
         setMarks(c.marks ?? []);
+        setElementStyle(c.elements ?? null);
+        setProjection(c.projection ?? 'perspective');
       }),
     [bounds]
   );
@@ -184,6 +266,33 @@ function App() {
     },
     [midOfAxis]
   );
+  // A snapshot's own scene wins over what an agent sent the page.
+  const activeStyle = useMemo(() => elementStyle ?? sceneStyle(scene), [elementStyle, scene]);
+  const styled = useMemo(
+    () =>
+      state.status === 'ready' && preview && activeStyle
+        ? styleElements(state.data, preview.elements, activeStyle, viewMode)
+        : null,
+    [state, preview, activeStyle, viewMode]
+  );
+  // Framing follows the model, the style and show_elements, not the selection, so picking an
+  // element doesn't snap the camera back.
+  const frameKey = JSON.stringify([
+    elementStyle ? null : (scene?.style ?? null),
+    scene?.frame ?? null,
+  ]);
+  const framing = useMemo(() => {
+    if (state.status !== 'ready' || !preview) return state.status === 'ready' ? state.data : null;
+    const [style, frame] = JSON.parse(frameKey) as [ElementStyle | null, string[] | null];
+    if (frame && frame.length > 0) {
+      return styleElements(state.data, preview.elements, {
+        layers: [{ keyPaths: frame }],
+        others: 'hidden',
+      }).visible;
+    }
+    const base = elementStyle ?? style;
+    return base ? styleElements(state.data, preview.elements, base).visible : state.data;
+  }, [state, preview, elementStyle, frameKey]);
   const clippingPlanes = useMemo(
     () => (sectionOn && bounds ? [sectionPlane(sectionAxis, sectionPos, sectionFlip)] : undefined),
     [sectionOn, bounds, sectionAxis, sectionPos, sectionFlip]
@@ -201,7 +310,7 @@ function App() {
   return (
     <>
       <ViewerCanvas
-        data={state.data}
+        data={framing ?? state.data}
         view={view}
         fitSignal={fitSignal}
         autoRotate={autoRotate}
@@ -209,15 +318,40 @@ function App() {
         projection={projection}
         onFirstFrame={markReady}
       >
-        <Renderer
-          data={state.data}
-          viewMode={viewMode}
-          {...(clippingPlanes ? { clippingPlanes } : {})}
-          {...(showControls ? { onFacePick: handleFacePick, onFaceHover: handleFaceHover } : {})}
-          {...(preview ? { onTrianglePick: handleTrianglePick } : {})}
-        />
-        {showEdges && viewMode !== 'wireframe' && state.data.edges.length > 0 && (
-          <EdgeRenderer edges={state.data.edges} {...(clippingPlanes ? { clippingPlanes } : {})} />
+        {styled ? (
+          styled.meshes.map((m) => (
+            <group key={m.key}>
+              <Renderer
+                data={m.data}
+                viewMode={m.viewMode}
+                {...(clippingPlanes ? { clippingPlanes } : {})}
+              />
+              {showEdges && m.viewMode !== 'wireframe' && m.data.edges.length > 0 && (
+                <EdgeRenderer
+                  edges={m.data.edges}
+                  {...(clippingPlanes ? { clippingPlanes } : {})}
+                />
+              )}
+            </group>
+          ))
+        ) : (
+          <>
+            <Renderer
+              data={state.data}
+              viewMode={viewMode}
+              {...(clippingPlanes ? { clippingPlanes } : {})}
+              {...(showControls
+                ? { onFacePick: handleFacePick, onFaceHover: handleFaceHover }
+                : {})}
+              {...(preview ? { onTrianglePick: handleTrianglePick } : {})}
+            />
+            {showEdges && viewMode !== 'wireframe' && state.data.edges.length > 0 && (
+              <EdgeRenderer
+                edges={state.data.edges}
+                {...(clippingPlanes ? { clippingPlanes } : {})}
+              />
+            )}
+          </>
         )}
         {showControls && (
           <SelectionHighlight
@@ -227,6 +361,7 @@ function App() {
           />
         )}
         {marks.length > 0 && <Marks marks={marks} />}
+        <CameraProbe />
       </ViewerCanvas>
       {showControls && (
         <ViewerSelectionPanel
@@ -261,8 +396,10 @@ function App() {
           valid={state.measurements.valid}
         />
       )}
-      {!showControls && showDims && <ViewerInfoPanel dims={meshSize(state.data)} />}
-      {preview && <PreviewPanel preview={preview} selected={selectedElement} />}
+      {!showControls && showDims && (
+        <ViewerInfoPanel dims={meshSize(styled ? styled.visible : state.data)} />
+      )}
+      {showControls && preview && <PreviewPanel preview={preview} selected={selectedElement} />}
       {showControls && (
         <ViewerControls
           viewMode={viewMode}

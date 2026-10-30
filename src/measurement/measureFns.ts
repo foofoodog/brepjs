@@ -4,10 +4,13 @@
  */
 
 import { getKernel } from '@/kernel/index.js';
+import type { DistanceResult, KernelShape, ShapeType } from '@/kernel/types.js';
+import { isUnsupportedKernelOperationError } from '@/kernel/unsupported.js';
+import type { Vec3 } from '@/core/types.js';
 import type { AnyShape, Dimension, Face, OrientedFace, Shape3D } from '@/core/shapeTypes.js';
-import { type Result, ok, err } from '@/core/result.js';
+import { type Err, type Result, ok, err } from '@/core/result.js';
 import { kernelCallRaw } from '@/core/kernelCall.js';
-import { validationError, BrepErrorCode } from '@/core/errors.js';
+import { type BrepError, validationError, unsupportedError, BrepErrorCode } from '@/core/errors.js';
 import { uvBounds } from '@/topology/faceFns.js';
 import type { CurvatureResult } from '@/kernel/occt/measureOps.js';
 import { getCachedMeasurement, setCachedMeasurement } from './measureCache.js';
@@ -34,6 +37,72 @@ function nullShapeErr(fn: string) {
   return err(validationError(BrepErrorCode.NULL_SHAPE_INPUT, `${fn}: shape is a null shape`));
 }
 
+/**
+ * Run `fn` on fresh handles to the distinct sub-shapes of `type`, releasing them
+ * afterwards. Unlike getFaces and friends this leaves the shape's topology cache
+ * alone, so a measurement allocates nothing that outlives it.
+ *
+ * @internal
+ */
+export function withSubShapes<R>(
+  shape: AnyShape<Dimension>,
+  type: ShapeType,
+  fn: (items: KernelShape[]) => R
+): R {
+  const kernel = getKernel();
+  const items = kernel.iterShapes(shape.wrapped, type);
+  try {
+    return fn(items);
+  } finally {
+    for (const item of items) kernel.dispose(item);
+  }
+}
+
+/**
+ * Run `fn` on a throwaway compound of `parts`, releasing the compound afterwards.
+ *
+ * @internal
+ */
+export function withCompoundOf<R>(parts: KernelShape[], fn: (c: KernelShape) => R): R {
+  const kernel = getKernel();
+  const c = kernel.makeCompound(parts);
+  try {
+    return fn(c);
+  } finally {
+    kernel.dispose(c);
+  }
+}
+
+function volumeOf(target: KernelShape): Result<VolumeProps> {
+  const kernel = getKernel();
+  const m = kernel.volume(target);
+  const comResult = kernelCallRaw(
+    () => kernel.centerOfMass(target),
+    BrepErrorCode.CENTER_OF_MASS_FAILED,
+    'Failed to compute center of mass'
+  );
+  if (!comResult.ok) return comResult;
+  return ok({ mass: m, volume: m, centerOfMass: comResult.value });
+}
+
+/** Area-weighted centroid of `faces`, from each face's own surface center of mass. */
+function surfaceCentroid(faces: KernelShape[]): Vec3 {
+  const kernel = getKernel();
+  let total = 0;
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (const f of faces) {
+    const a = kernel.area(f);
+    const [cx, cy, cz] = kernel.surfaceCenterOfMass(f);
+    total += a;
+    x += a * cx;
+    y += a * cy;
+    z += a * cz;
+  }
+  return total > 0 ? [x / total, y / total, z / total] : [0, 0, 0];
+}
+
 // ---------------------------------------------------------------------------
 // Volume, area, length
 // ---------------------------------------------------------------------------
@@ -57,27 +126,23 @@ export function measureVolumeProps(shape: Shape3D): Result<VolumeProps> {
   // Kernels otherwise diverge here (#1361): occt uses VolumeProperties with
   // OnlyClosed=true and reports 0 for an open shell, while occt-wasm's GProp
   // returns a meaningless divergence-theorem value. Normalize to 0/origin.
+  // A compound can also hold loose faces, shells, or wires, which would feed the
+  // same meaningless value into the total, so only its solids are measured.
   const type = kernel.shapeType(shape.wrapped);
-  if (type !== 'solid' && type !== 'compsolid' && type !== 'compound') {
-    const zero: VolumeProps = { mass: 0, volume: 0, centerOfMass: [0, 0, 0] };
-    setCachedMeasurement(shape.wrapped, 'volume', zero);
-    return ok(zero);
+  const zero: VolumeProps = { mass: 0, volume: 0, centerOfMass: [0, 0, 0] };
+  let result: Result<VolumeProps>;
+  if (type === 'solid' || type === 'compsolid') {
+    result = volumeOf(shape.wrapped);
+  } else if (type === 'compound') {
+    result = withSubShapes(shape, 'solid', (solids) =>
+      solids.length === 0 ? ok(zero) : withCompoundOf(solids, volumeOf)
+    );
+  } else {
+    result = ok(zero);
   }
-
-  const m = kernel.volume(shape.wrapped);
-  const comResult = kernelCallRaw(
-    () => kernel.centerOfMass(shape.wrapped),
-    BrepErrorCode.CENTER_OF_MASS_FAILED,
-    'Failed to compute center of mass'
-  );
-  if (!comResult.ok) return comResult;
-  const result: VolumeProps = {
-    mass: m,
-    volume: m,
-    centerOfMass: comResult.value,
-  };
-  setCachedMeasurement(shape.wrapped, 'volume', result);
-  return ok(result);
+  if (!result.ok) return result;
+  setCachedMeasurement(shape.wrapped, 'volume', result.value);
+  return result;
 }
 
 /**
@@ -95,7 +160,10 @@ export function measureSurfaceProps(shape: Face<Dimension> | Shape3D): Result<Su
   const kernel = getKernel();
   const m = kernel.area(shape.wrapped);
   const comResult = kernelCallRaw(
-    () => kernel.centerOfMass(shape.wrapped),
+    () =>
+      kernel.shapeType(shape.wrapped) === 'face'
+        ? kernel.surfaceCenterOfMass(shape.wrapped)
+        : withSubShapes(shape, 'face', surfaceCentroid),
     BrepErrorCode.CENTER_OF_MASS_FAILED,
     'Failed to compute center of mass'
   );
@@ -112,8 +180,9 @@ export function measureSurfaceProps(shape: Face<Dimension> | Shape3D): Result<Su
 /**
  * Measure linear properties of any shape.
  *
- * For edges this is the arc length; for wires/compounds it is the total
- * length of all edges.
+ * For edges this is the arc length; for wires it is the total length of their
+ * edges; for faces, shells, solids, and compounds it is the total length of
+ * their distinct edges, each counted once (a face's seam edge included).
  *
  * @param shape - Any shape whose linear extent is to be measured.
  * @returns `Result` containing length, center of mass, and raw mass property.
@@ -125,13 +194,24 @@ export function measureLinearProps(shape: AnyShape<Dimension>): Result<LinearPro
   if (shapeIsNull(shape)) return nullShapeErr('measureLinearProps');
 
   const kernel = getKernel();
-  const m = kernel.length(shape.wrapped);
-  const com = kernel.linearCenterOfMass(shape.wrapped);
-  const result: LinearProps = {
-    mass: m,
-    length: m,
-    centerOfMass: com,
+  const type = kernel.shapeType(shape.wrapped);
+  const linearOf = (target: KernelShape): LinearProps => {
+    const m = kernel.length(target);
+    return { mass: m, length: m, centerOfMass: kernel.linearCenterOfMass(target) };
   };
+  let result: LinearProps;
+  if (type === 'vertex' || type === 'edge' || type === 'wire') {
+    result = linearOf(shape.wrapped);
+  } else {
+    // LinearProperties walks every edge occurrence, so on a closed body each edge
+    // shared by two faces would count twice, and so would a face's own seam edge,
+    // which its wire runs along once each way. Measure the distinct edges instead.
+    result = withSubShapes(shape, 'edge', (edges) =>
+      edges.length === 0
+        ? { mass: 0, length: 0, centerOfMass: [0, 0, 0] }
+        : withCompoundOf(edges, linearOf)
+    );
+  }
   setCachedMeasurement(shape.wrapped, 'linear', result);
   return ok(result);
 }
@@ -174,7 +254,41 @@ export function measureLength(shape: AnyShape<Dimension>): Result<number> {
 // ---------------------------------------------------------------------------
 
 /**
+ * The kernel's distance between two shapes, or `UNSUPPORTED_CAPABILITY` for a
+ * pair of shape types the kernel has no exact measure for (brepkit measures
+ * only from a point, or between solids).
+ *
+ * @internal
+ */
+export function kernelDistance(fn: string, a: KernelShape, b: KernelShape): Result<DistanceResult> {
+  try {
+    return ok(getKernel().distance(a, b));
+  } catch (e) {
+    if (!isUnsupportedKernelOperationError(e)) throw e;
+    return distanceUnsupported(fn, e);
+  }
+}
+
+function distanceUnsupported(fn: string, e: unknown): Err<BrepError> {
+  const kernelId = getKernel().kernelId;
+  const raw = e instanceof Error ? e.message : String(e);
+  return err(
+    unsupportedError(
+      BrepErrorCode.UNSUPPORTED_CAPABILITY,
+      `${fn}: the ${kernelId} kernel cannot measure this distance (${raw})`,
+      e,
+      { kernel: kernelId, operation: fn },
+      'Measure from a vertex or between two solids, or use the occt-wasm kernel'
+    )
+  );
+}
+
+/**
  * Measure the minimum distance between two shapes.
+ *
+ * @returns Err `UNSUPPORTED_CAPABILITY` for a pair of shapes the kernel cannot
+ *   measure exactly (on brepkit, anything but a vertex against a shape or a
+ *   solid against a solid).
  */
 export function measureDistance(
   shape1: AnyShape<Dimension>,
@@ -182,11 +296,15 @@ export function measureDistance(
 ): Result<number> {
   if (shapeIsNull(shape1)) return nullShapeErr('measureDistance');
   if (shapeIsNull(shape2)) return nullShapeErr('measureDistance');
-  return ok(getKernel().distance(shape1.wrapped, shape2.wrapped).value);
+  const d = kernelDistance('measureDistance', shape1.wrapped, shape2.wrapped);
+  return d.ok ? ok(d.value.value) : d;
 }
 
 /**
  * Measure the minimum distance between two shapes, including witness points.
+ *
+ * @returns Err `UNSUPPORTED_CAPABILITY` for a pair of shapes the kernel cannot
+ *   measure exactly, as {@link measureDistance} does.
  */
 export function measureDistanceProps(
   shape1: AnyShape<Dimension>,
@@ -194,11 +312,12 @@ export function measureDistanceProps(
 ): Result<DistanceProps> {
   if (shapeIsNull(shape1)) return nullShapeErr('measureDistanceProps');
   if (shapeIsNull(shape2)) return nullShapeErr('measureDistanceProps');
-  const d = getKernel().distance(shape1.wrapped, shape2.wrapped);
+  const d = kernelDistance('measureDistanceProps', shape1.wrapped, shape2.wrapped);
+  if (!d.ok) return d;
   return ok({
-    distance: d.value,
-    point1: d.point1,
-    point2: d.point2,
+    distance: d.value.value,
+    point1: d.value.point1,
+    point2: d.value.point2,
   });
 }
 
@@ -220,7 +339,12 @@ export function createDistanceQuery(referenceShape: AnyShape<Dimension>): Result
   return ok({
     distanceTo(other: AnyShape<Dimension>): Result<number> {
       if (shapeIsNull(other)) return nullShapeErr('createDistanceQuery.distanceTo');
-      return ok(query.distanceTo(other.wrapped).value);
+      try {
+        return ok(query.distanceTo(other.wrapped).value);
+      } catch (e) {
+        if (!isUnsupportedKernelOperationError(e)) throw e;
+        return distanceUnsupported('createDistanceQuery.distanceTo', e);
+      }
     },
     dispose(): void {
       query.dispose();

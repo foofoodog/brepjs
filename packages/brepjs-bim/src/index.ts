@@ -301,14 +301,18 @@ export type {
 // the caller's responsibility — see FLAG: BCF_ZIP_PACKAGING_ABSENT).
 export { serializeBcfFiles, parseBcfFiles } from './bcf/index.js';
 export type {
+  BcfCamera,
   BcfColoring,
   BcfComment,
   BcfComponent,
   BcfComponents,
   BcfContainerData,
   BcfFiles,
+  BcfOrthogonalCamera,
+  BcfPerspectiveCamera,
   BcfProject,
   BcfTopic,
+  BcfVector,
   BcfVersion,
   BcfViewpoint,
   BcfVisibility,

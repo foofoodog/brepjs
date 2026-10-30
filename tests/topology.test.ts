@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { initKernel } from './setup.js';
+import { skipIfDiverges } from './helpers/kernelDivergences.js';
 import {
   box,
   cylinder,
@@ -28,6 +29,7 @@ import {
   isNumber,
   isChamferRadius,
   isFilletRadius,
+  isClosedWire,
   isShape3D,
   sketchCircle,
   sketchRectangle,
@@ -371,7 +373,8 @@ describe('fillet', () => {
     const zEdges = edgeFinder().inDirection('Z').findAll(b);
     expect(unwrap(fillet(b, zEdges, 1))).toBeDefined();
   });
-  it('[r1,r2]', () => {
+  it('[r1,r2]', (ctx) => {
+    skipIfDiverges(ctx, 'modifierFns.variableFilletRadius');
     const b = box(10, 10, 10);
     const zEdges = edgeFinder().inDirection('Z').findAll(b);
     expect(unwrap(fillet(b, zEdges, [1, 2]))).toBeDefined();
@@ -458,7 +461,7 @@ describe('shapeHelpers', () => {
     expect(curveIsClosed(circle(10))).toBe(true);
   });
   it('makeCircle custom', () => {
-    expect(isEdge(circle(5, { at: [1, 2, 3], normal: [0, 1, 0] }))).toBe(true);
+    expect(isEdge(circle(5, { at: [1, 2, 3], axis: [0, 1, 0] }))).toBe(true);
   });
   it('makeEllipse', () => {
     expect(isEdge(unwrap(ellipse(10, 5)))).toBe(true);
@@ -471,6 +474,20 @@ describe('shapeHelpers', () => {
   });
   it('makeHelix left', () => {
     expect(isWire(helix(2, 10, 5, { at: [0, 0, 0], axis: [0, 0, 1], lefthand: true }))).toBe(true);
+  });
+  it('makeHelix lefthand winds the other way round the axis', () => {
+    // Both start at (10, 0, 0); a quarter turn up, the right-hand helix is at +Y
+    // and the left-hand one at -Y.
+    using right = helix(10, 10, 10);
+    using left = helix(10, 10, 10, { lefthand: true });
+    const r = curvePointAt(right, 0.25);
+    const l = curvePointAt(left, 0.25);
+    expect(r[0]).toBeCloseTo(0, 5);
+    expect(r[1]).toBeCloseTo(10, 5);
+    expect(r[2]).toBeCloseTo(2.5, 5);
+    expect(l[0]).toBeCloseTo(0, 5);
+    expect(l[1]).toBeCloseTo(-10, 5);
+    expect(l[2]).toBeCloseTo(2.5, 5);
   });
   it('makeThreePointArc', () => {
     expect(isEdge(threePointArc([0, 0, 0], [5, 5, 0], [10, 0, 0]))).toBe(true);
@@ -549,6 +566,7 @@ describe('shapeHelpers', () => {
         line([0, 10, 0], [0, 0, 0]),
       ])
     );
+    if (!isClosedWire(w)) throw new Error('wire is not closed');
     expect(isFace(unwrap(filledFace(w)))).toBe(true);
   });
   it('makeEllipsoid', () => {

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-non-null-assertion -- test array indexing */
 import { describe, expect, it, beforeAll } from 'vitest';
 import { initKernel } from './setup.js';
-import type { Blueprint } from '@/index.js';
+import Blueprint from '@/2d/blueprints/blueprint.js';
 import CompoundBlueprint from '@/2d/blueprints/compoundBlueprint.js';
 import Blueprints from '@/2d/blueprints/blueprints.js';
 import {
@@ -29,6 +29,7 @@ import {
   blueprintsIntersectionSegments,
   isCommonSegmentMatch,
 } from '@/2d/blueprints/intersectionSegments.js';
+import { make2dSegmentCurve } from '@/2d/lib/index.js';
 
 beforeAll(async () => {
   await initKernel();
@@ -456,6 +457,7 @@ describe('customCorners', () => {
     expect(filleted).toBeDefined();
     // Filleted shape has more curves than original (4 lines -> 4 lines + 4 arcs)
     if (filleted) {
+      if (!(filleted instanceof Blueprint)) throw new Error('expected a Blueprint');
       expect(filleted.curves.length).toBeGreaterThan(bp.curves.length);
     }
   });
@@ -466,6 +468,7 @@ describe('customCorners', () => {
     expect(chamfered).toBeDefined();
     // Chamfered shape has more curves than original (4 lines -> 8 lines)
     if (chamfered) {
+      if (!(chamfered instanceof Blueprint)) throw new Error('expected a Blueprint');
       expect(chamfered.curves.length).toBeGreaterThan(bp.curves.length);
     }
   });
@@ -496,6 +499,7 @@ describe('Blueprints.sketchOnFace', () => {
     const b = new Blueprints([rect(5, 5), rect(5, 5, 10, 0)]);
     const solid = box(30, 30, 30);
     const f = getFaces(solid)[0];
+    if (!f) throw new Error('box has no faces');
     const sketches = b.sketchOnFace(f, 'original');
     expect(Array.isArray(sketches)).toBe(true);
     expect(sketches.length).toBe(2);
@@ -579,21 +583,29 @@ describe('intersect2D extended', () => {
 });
 
 describe('isCommonSegmentMatch (reverse-oriented common segments)', () => {
+  const common = () => [make2dSegmentCurve([0, 0], [10, 0])];
+
   it('matches forward-oriented common segment', () => {
-    const commonSegmentsPoints = [[[0, 0] as [number, number], [10, 0] as [number, number]]];
-    expect(isCommonSegmentMatch(commonSegmentsPoints, [0, 0], [10, 0])).toBe(true);
+    expect(isCommonSegmentMatch(common(), [make2dSegmentCurve([0, 0], [10, 0])])).toBe(true);
   });
 
   it('matches reverse-oriented common segment', () => {
     // The segment runs (10,0)→(0,0) but the common segment was detected as (0,0)→(10,0).
     // This exercises the reverse-orientation branch fixed by the copy-paste bug.
-    const commonSegmentsPoints = [[[0, 0] as [number, number], [10, 0] as [number, number]]];
-    expect(isCommonSegmentMatch(commonSegmentsPoints, [10, 0], [0, 0])).toBe(true);
+    expect(isCommonSegmentMatch(common(), [make2dSegmentCurve([10, 0], [0, 0])])).toBe(true);
   });
 
   it('rejects non-matching segment', () => {
-    const commonSegmentsPoints = [[[0, 0] as [number, number], [10, 0] as [number, number]]];
-    expect(isCommonSegmentMatch(commonSegmentsPoints, [0, 0], [5, 5])).toBe(false);
+    expect(isCommonSegmentMatch(common(), [make2dSegmentCurve([0, 0], [5, 5])])).toBe(false);
+  });
+
+  it('rejects a path that only shares the common segment endpoints', () => {
+    const detour = [
+      make2dSegmentCurve([10, 0], [10, 5]),
+      make2dSegmentCurve([10, 5], [0, 5]),
+      make2dSegmentCurve([0, 5], [0, 0]),
+    ];
+    expect(isCommonSegmentMatch(common(), detour)).toBe(false);
   });
 
   it('edge-adjacent rectangles detect common segments', () => {
@@ -677,20 +689,20 @@ describe('offset extended', () => {
 describe('approximateForSVG', () => {
   it('approximates blueprint curves for SVG compatibility', () => {
     const bp = circ(5);
-    const approximated = approximateForSVG(bp, { precision: 0.1 });
+    const approximated = approximateForSVG(bp, { tolerance: 0.1 });
     expect(approximated).toBeDefined();
     expect(approximated.curves.length).toBeGreaterThan(0);
   });
 
   it('approximates CompoundBlueprint', () => {
     const c = new CompoundBlueprint([rect(30, 30), circ(3)]);
-    const approximated = approximateForSVG(c, { precision: 0.1 });
+    const approximated = approximateForSVG(c, { tolerance: 0.1 });
     expect(approximated).toBeDefined();
   });
 
   it('approximates Blueprints', () => {
     const b = new Blueprints([rect(10, 10), circ(5, 20, 0)]);
-    const approximated = approximateForSVG(b, { precision: 0.1 });
+    const approximated = approximateForSVG(b, { tolerance: 0.1 });
     expect(approximated).toBeDefined();
   });
 });

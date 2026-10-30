@@ -30,7 +30,7 @@ export type {
   OcctWasmHandle,
   OcctWasmModule,
   OcctKernelWasm,
-  SurfaceType,
+  SurfaceType as KernelSurfaceType,
   ShapeOrientation,
   ShapeType,
   // Kernel sub-interfaces (ADR-0007)
@@ -43,6 +43,7 @@ export type {
   KernelMeasureOps,
   KernelMeshOps,
   KernelModifierOps,
+  ChamferDistAngleEdge,
   KernelPrimitiveOps,
   KernelRepairOps,
   KernelSurfaceOps,
@@ -389,7 +390,7 @@ export {
 
 // ── Layer 3: text ──
 
-export { loadFont, getFont } from './text/fontRegistry.js';
+export { loadFont, getFont, setFallbackFont } from './text/fontRegistry.js';
 export { textBlueprints } from './text/textBlueprints.js';
 export { sketchText } from './text/sketchText.js';
 export {
@@ -652,6 +653,7 @@ export {
   innerWires,
   removeHolesFromFace,
   projectPointOnFace,
+  type SurfaceType,
   type UVBounds,
   type PointProjectionResult,
 } from './topology/faceFns.js';

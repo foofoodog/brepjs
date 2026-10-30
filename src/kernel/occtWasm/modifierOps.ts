@@ -5,14 +5,20 @@
  */
 
 import type { KernelShape } from '@/kernel/types.js';
+import type { ChamferDistAngleEdge } from '@/kernel/interfaces/modifierOps.js';
 import type { OcctKernelWasm, OcctWasmModule } from './occtWasmTypes.js';
 import {
+  draftAnglesRad,
+  makeVecDouble,
   makeVecU32,
+  needsOcctWasm59,
+  referenceFaceIds,
   reportingFaultyEdges,
-  resolveUniformRadius,
+  runEdgeTreatment,
   unwrap,
   wrapResult,
 } from './helpers.js';
+import type { EdgeValueSpec } from './helpers.js';
 import { UnsupportedKernelOperationError } from '@/kernel/unsupported.js';
 
 // occt's hashCode upper bound (INT_MAX). Mirrors core's HASH_CODE_MAX but is kept
@@ -26,18 +32,20 @@ export function fillet(
   Module: OcctWasmModule,
   shape: KernelShape,
   edges: KernelShape[],
-  radius: number | [number, number] | ((edge: KernelShape) => number | [number, number])
+  radius: EdgeValueSpec
 ): KernelShape {
-  const r = resolveUniformRadius(edges, radius);
-  const vec = makeVecU32(Module, edges.map(unwrap));
-  try {
-    return wrapResult(
-      k,
-      reportingFaultyEdges(edges, () => k.fillet(unwrap(shape), vec, r))
-    );
-  } finally {
-    vec.delete();
-  }
+  const id = unwrap(shape);
+  const resultId = runEdgeTreatment(
+    Module,
+    edges,
+    radius,
+    (edgeVec, r) => k.fillet(id, edgeVec, r),
+    (edgeVec, startRadii, endRadii) => {
+      if (!k.filletRadii) throw needsOcctWasm59('per-edge or tapered fillet radii');
+      return k.filletRadii(id, edgeVec, startRadii, endRadii);
+    }
+  );
+  return wrapResult(k, resultId);
 }
 
 export function chamfer(
@@ -45,17 +53,77 @@ export function chamfer(
   Module: OcctWasmModule,
   shape: KernelShape,
   edges: KernelShape[],
-  distance: number | [number, number] | ((edge: KernelShape) => number | [number, number])
+  distance: EdgeValueSpec
 ): KernelShape {
-  const d = resolveUniformRadius(edges, distance);
-  const vec = makeVecU32(Module, edges.map(unwrap));
+  const id = unwrap(shape);
+  // No reference faces: each edge sets distance1 back on its first adjacent face.
+  const faceVec = makeVecU32(Module, []);
   try {
-    return wrapResult(
-      k,
-      reportingFaultyEdges(edges, () => k.chamfer(unwrap(shape), vec, d))
+    const resultId = runEdgeTreatment(
+      Module,
+      edges,
+      distance,
+      (edgeVec, d) => k.chamfer(id, edgeVec, d),
+      (edgeVec, distances1, distances2) => {
+        if (!k.chamferDistances) throw needsOcctWasm59('per-edge or asymmetric chamfer distances');
+        return k.chamferDistances(id, edgeVec, distances1, distances2, faceVec);
+      }
     );
+    return wrapResult(k, resultId);
   } finally {
-    vec.delete();
+    faceVec.delete();
+  }
+}
+
+interface DistAngle {
+  readonly distance: number;
+  readonly angleDeg: number;
+}
+
+/**
+ * Chamfer edge i by `distances[i]` and `anglesDeg[i]` from reference face
+ * `faceIds[i]` (see {@link referenceFaceIds}). Builds without the per-edge
+ * entry point take only `shared`, the one value every edge has, and no faces.
+ */
+function runChamferDistAngles(
+  k: OcctKernelWasm,
+  Module: OcctWasmModule,
+  shape: KernelShape,
+  edges: readonly KernelShape[],
+  distances: number[],
+  anglesDeg: number[],
+  faceIds: number[],
+  shared: DistAngle | undefined
+): KernelShape {
+  const id = unwrap(shape);
+  const edgeVec = makeVecU32(Module, edges.map(unwrap));
+  try {
+    if (!k.chamferDistAngles) {
+      if (faceIds.length > 0) {
+        throw needsOcctWasm59('distance-angle chamfers measured from a given face');
+      }
+      if (!shared) throw needsOcctWasm59('per-edge distance-angle chamfers');
+      return wrapResult(k, k.chamferDistAngle(id, edgeVec, shared.distance, shared.angleDeg));
+    }
+    // chamferDistAngles names the edges a failed chamfer could not build;
+    // the single-value chamferDistAngle does not.
+    const chamferDistAngles = k.chamferDistAngles.bind(k);
+    const distanceVec = makeVecDouble(Module, distances);
+    const angleVec = makeVecDouble(Module, anglesDeg);
+    // With no ids, each edge's distance is set back on its first adjacent face.
+    const faceVec = makeVecU32(Module, faceIds);
+    try {
+      const resultId = reportingFaultyEdges(edges, () =>
+        chamferDistAngles(id, edgeVec, distanceVec, angleVec, faceVec)
+      );
+      return wrapResult(k, resultId);
+    } finally {
+      distanceVec.delete();
+      angleVec.delete();
+      faceVec.delete();
+    }
+  } finally {
+    edgeVec.delete();
   }
 }
 
@@ -67,12 +135,38 @@ export function chamferDistAngle(
   distance: number,
   angleDeg: number
 ): KernelShape {
-  const vec = makeVecU32(Module, edges.map(unwrap));
-  try {
-    return wrapResult(k, k.chamferDistAngle(unwrap(shape), vec, distance, angleDeg));
-  } finally {
-    vec.delete();
-  }
+  const distances = Array<number>(edges.length).fill(distance);
+  const anglesDeg = Array<number>(edges.length).fill(angleDeg);
+  return runChamferDistAngles(k, Module, shape, edges, distances, anglesDeg, [], {
+    distance,
+    angleDeg,
+  });
+}
+
+/** The distance and angle every edge takes, or `undefined` when they differ. */
+function sharedDistAngle(entries: readonly DistAngle[]): DistAngle | undefined {
+  const [first] = entries;
+  if (first === undefined) return undefined;
+  const same = entries.every((e) => e.distance === first.distance && e.angleDeg === first.angleDeg);
+  return same ? first : undefined;
+}
+
+export function chamferDistAngles(
+  k: OcctKernelWasm,
+  Module: OcctWasmModule,
+  shape: KernelShape,
+  entries: ReadonlyArray<ChamferDistAngleEdge>
+): KernelShape {
+  return runChamferDistAngles(
+    k,
+    Module,
+    shape,
+    entries.map((e) => e.edge),
+    entries.map((e) => e.distance),
+    entries.map((e) => e.angleDeg),
+    referenceFaceIds(entries.map((e) => e.face)),
+    sharedDistAngle(entries)
+  );
 }
 
 export function shell(
@@ -210,28 +304,59 @@ export function filletVariable(k: OcctKernelWasm, shape: KernelShape, spec: stri
   throw new UnsupportedKernelOperationError('occt-wasm: filletVariable: unrecognized spec');
 }
 
-export function draft(
+/**
+ * Before 5.9 occt-wasm drafts one face per call about the XY plane through the
+ * origin. That is the caller's plane (through `neutralPlane`, normal to the
+ * pull) only for a pull along Z and a point at z = 0.
+ */
+function legacyDraft(
   k: OcctKernelWasm,
   shape: KernelShape,
   faces: KernelShape[],
   pullDirection: [number, number, number],
-  _neutralPlane: [number, number, number],
+  neutralPlane: [number, number, number],
+  anglesRad: number[]
+): KernelShape {
+  const [face] = faces;
+  const [angle] = anglesRad;
+  const [dx, dy, dz] = pullDirection;
+  const fits = faces.length === 1 && dx === 0 && dy === 0 && neutralPlane[2] === 0;
+  if (!fits || face === undefined || angle === undefined) {
+    throw needsOcctWasm59('drafting several faces, or about a neutral plane off z = 0,');
+  }
+  return wrapResult(k, k.draft(unwrap(shape), unwrap(face), angle, dx, dy, dz));
+}
+
+/** Draft every face in one operation about the plane through `neutralPlane` normal to the pull. */
+export function draft(
+  k: OcctKernelWasm,
+  Module: OcctWasmModule,
+  shape: KernelShape,
+  faces: KernelShape[],
+  pullDirection: [number, number, number],
+  neutralPlane: [number, number, number],
   angleDeg: number | ((face: KernelShape) => number)
 ): KernelShape {
-  let currentId = unwrap(shape);
-  for (const face of faces) {
-    const angle = typeof angleDeg === 'function' ? angleDeg(face) : angleDeg;
-    const angleRad = (angle * Math.PI) / 180;
-    currentId = k.draft(
-      currentId,
-      unwrap(face),
-      angleRad,
-      pullDirection[0],
-      pullDirection[1],
-      pullDirection[2]
+  const anglesRad = draftAnglesRad(faces, angleDeg);
+  if (!k.draftFaces) return legacyDraft(k, shape, faces, pullDirection, neutralPlane, anglesRad);
+  const faceVec = makeVecU32(Module, faces.map(unwrap));
+  const angleVec = makeVecDouble(Module, anglesRad);
+  try {
+    return wrapResult(
+      k,
+      k.draftFaces(
+        unwrap(shape),
+        faceVec,
+        angleVec,
+        ...pullDirection,
+        ...neutralPlane,
+        ...pullDirection
+      )
     );
+  } finally {
+    faceVec.delete();
+    angleVec.delete();
   }
-  return wrapResult(k, currentId);
 }
 
 export function defeature(

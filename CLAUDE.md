@@ -18,7 +18,7 @@ Boundaries enforced by `npm run check:boundaries` (runs in pre-commit and CI).
 Monorepo packages:
 
 - `brepjs` (root): Core library (published)
-- `packages/brepjs-opencascade`: OpenCascade WASM build (published)
+- `packages/brepjs-opencascade`: legacy opencascade.js WASM build (deprecated; occt-wasm is the only kernel going forward, so don't publish or extend it)
 - `packages/brepjs-bim`: IFC/BIM parametric building elements + IFC import/export (experimental, published)
 - `packages/brepjs-families`: Declarative family layer (element trees, key paths, projection onto the CSG IR); BIM export via brepjs-bim's `familiesToBim` (experimental, published)
 - `packages/brepjs-sheetmetal`: Sheet-metal authoring + unfold/flat-pattern + DXF (experimental, published)
@@ -31,6 +31,7 @@ Monorepo packages:
 
 - `npm run build`: Vite library build (ES + CJS)
 - `npm run typecheck`: TypeScript strict check
+- `npm run typecheck:tests`: Type-check `tests/` (files listed in `exclude` of `tsconfig.typecheck-tests.json` still have errors; the list only shrinks)
 - `npm run lint` / `npm run lint:fix`: ESLint
 - `npm run format` / `npm run format:check`: Prettier
 - `npm run test`: Vitest (changed files only, no coverage)
@@ -45,19 +46,19 @@ Monorepo packages:
 
 ## Git hooks
 
-- **Pre-commit**: lint-staged (ESLint + Prettier + pattern checker) + typecheck + boundary check (parallel), then changed-file tests (no coverage thresholds). Set `FULL_TESTS=1` for full coverage run
+- **Pre-commit**: lint-staged (ESLint + Prettier + pattern checker) + typecheck (src and tests) + boundary check (parallel), then changed-file tests (no coverage thresholds). Set `FULL_TESTS=1` for full coverage run
 - **Pre-push**: `knip` (unused-code detection) only. The full test suite is **not** run on push — CI's sharded `test` job (`test:ci`) is the full gate, and pre-commit already runs changed-file tests
 - Bypass: `--no-verify` (not recommended)
 
 ## Key patterns
 
-- `getKernel()` from `src/kernel/index.ts` for all kernel operations; `initFromOC(oc)` must be called first
+- `getKernel()` from `src/kernel/index.ts` for all kernel operations; a kernel must be registered first (`init()`, or `registerKernel()` with `OcctWasmAdapter.fromKernel(await OcctKernel.init())`)
 - `registerKernel(id, adapter)` / `withKernel(id, fn)` for custom or dual kernel usage
 - `withKernel(id, fn)` is **sync-only**: async callbacks silently use the wrong kernel after the first `await`. Use `getKernel(id)` directly for async code.
 - **Layer 2+ code must never call methods on `.wrapped`**: always use `getKernel().method(shape.wrapped)`. ESLint enforces this.
 - Branded types (`Edge`, `Wire`, `Face`, `Solid`, etc.) in `src/core/shapeTypes.ts`: lightweight handles, no class hierarchy. Types carry a phantom `D extends Dimension` parameter for 2D/3D safety.
 - Validity brands (`ClosedWire`, `OrientedFace`, `ManifoldShell`, `ValidSolid`) in `src/core/shapeTypes.ts`: phantom types encoding topological invariants. Smart constructors (`closedWire()`, `orientedFace()`) prove validity at runtime; type guards (`isClosedWire()`, etc.) narrow in-place.
-- **Default kernel: occt-wasm** (`OcctKernel.init()` + `OcctWasmAdapter.fromKernel`, external `occt-wasm` npm package). `init()` and `brepjs/quick` resolve it first, falling back to OpenCascade WASM (`initFromOC`, shipped via `brepjs-opencascade`) then brepkit WASM (`BrepkitAdapter`, external `brepkit-wasm`). The default test gate runs occt-wasm; run the others via `TEST_KERNEL` / `npm run test:occt` / `npm run test:brepkit`.
+- **Default kernel: occt-wasm** (`OcctKernel.init()` + `OcctWasmAdapter.fromKernel`, external `occt-wasm` npm package). `init()` and `brepjs/quick` resolve it first, falling back to the deprecated opencascade.js build (`initFromOC`, `brepjs-opencascade`) then brepkit WASM (`BrepkitAdapter`, external `brepkit-wasm`). The default test gate runs occt-wasm; run the others via `TEST_KERNEL` / `npm run test:occt` / `npm run test:brepkit`.
 - **Memory & disposal (occt-wasm is an arena kernel):** shapes are arena slots; a handle's own `.delete()` is a no-op, so a slot is reclaimed only via `getKernel().dispose()`. `createHandle()` (`src/core/disposal.ts`) routes `Symbol.dispose`/finalizer through the kernel, so `using` frees the slot on every kernel. Contract:
   - `using` (or `.delete()`) **every** shape you own. The functional `*Fns` API is immutable and does **not** consume its inputs — the caller disposes them. A missed `using` on an intermediate (e.g. the inner `box` in `translate(box(...), ...)`) leaks a slot.
   - Cast a **fresh** kernel result with `castResultShape()` (not `castShape()`) so its orphaned pre-downcast slot is released; use `disposeResultShape()` on reject/discard branches. `castResultShapeWithKnownType()` for iterated sub-shapes. These are safe on in-place kernels (the guard skips identity downcasts; brepkit's dispose is a no-op).
@@ -103,7 +104,7 @@ Conventional Commits enforced: `type(scope): subject`
 
 1. File: extend existing `tests/<moduleName>.test.ts` or create new `tests/<name>.test.ts`
 2. Import from `@/index.js` (use `@/` alias for cross-directory imports, always `.js` extension)
-3. Add `beforeAll(async () => { await initOC(); }, 30000)` and import `initOC` from `./setup.js`
+3. Add `beforeAll(async () => { await initKernel(); }, 30000)` and import `initKernel` from `./setup.js` (it initialises the kernel `TEST_KERNEL` selects; `initOCCT` pins opencascade.js and is only for tests that need that adapter)
 4. Use `toBeCloseTo(expected, precision)` for geometry; never exact equality for floating point
 5. Use `unwrap(result)` in tests; use `isOk()`/`match()` in production code
 6. Assert shape types with `isSolid()`, `isFace()`, `isWire()`, etc.

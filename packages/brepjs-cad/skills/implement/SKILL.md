@@ -61,7 +61,7 @@ only extents you **place directly** — a footprint, where each body sits, the f
 placed there — these read off your datums and catch a dropped/misplaced body. An extent **governed by a
 rotation, a part's orientation, a proud sub-feature, a half-space clip, or the outer top/bottom of a
 deep multi-body stack** is not a datum: bound it generously or measure-first (run once, copy the
-report's measured value). That last one is the #1 `EXPECTED_ASSERTION_FAILED` on assemblies — a
+report's measured value). That last one is the #1 failed `expected` assertion on assemblies — a
 stack's extreme z is usually crowned by a rounded/proud feature (a carrier hub, a ball cap) and sums
 every body's placement error, so **measure it; don't hand-add the stack**. A flat lid-on-base height
 you place is fine; the moment a curved or proud sub-feature defines the extreme, it's governed. This
@@ -74,7 +74,7 @@ outer corner keeps the original face plane as its bound, so the extent stays at 
 predict `xMin = 0` for a corner chamfered at `x = 0`, never `xMin = -chamfer`.
 
 An extent is a datum only if you place that **face** directly. A **derived** extent is not — and these
-are the other half of the `EXPECTED_ASSERTION_FAILED`s: a body **translated** beside another (its far
+are the other half of the failed `expected` assertions: a body **translated** beside another (its far
 edge is `offset ± its own half-extent`, not the offset), a face/foot **widened to overlap** a neighbour
 for fusing (its outer edge is the widened size, not the nominal feature length), or a `cylinder`/`cone`
 given a non-default **`axis`** (its far end is `base + axis·length`, e.g. base `x=-15`, axis `-X`,
@@ -148,9 +148,12 @@ length `14` → `xMin=-29`). Compute these from the SAME const that places the g
   the half you want). Fusing a whole sphere bulges past a cap face. See the `dome-cap` example.
 - **Pattern angles are DEGREES** (`circularPattern`/`rectangularPattern` `fullAngle`), _unlike_
   `revolve` (radians). Check the unit per op.
-- **Parts may be `async`**: `export default async () => {…}` is awaited — `await loadFont(...)`
-  (required before any `sketchText`/`drawText`) or `await importSTEP(...)`. `--check` type-checks
-  Node built-ins, so a part may `import { readFile } from 'node:fs/promises'`.
+- **Text needs no font file under `brep`**: `sketchText`/`drawText` fall back to a bundled Inter
+  Bold. Call `await loadFont(bytes, family)` only for a specific typeface, passing the file's bytes
+  as an `ArrayBuffer`: a string argument is fetched as a URL, so a filesystem path fails in Node.
+- **Parts may be `async`**: `export default async () => {…}` is awaited — `await loadFont(...)` or
+  `await importSTEP(...)`. `--check` type-checks Node built-ins, so a part may
+  `import { readFile } from 'node:fs/promises'`.
 - Author in ESM (the tool's default) so the kernel loads.
 
 ## Reference index (load only what the task needs)

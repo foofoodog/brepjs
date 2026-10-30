@@ -1,7 +1,7 @@
 {
   "name": "brepjs-cad",
-  "version": "0.180.0",
-  "description": "Brainstorm → design → author → verify → polish pipeline for parametric brepjs CAD, with the brep CLI",
+  "version": "0.192.3",
+  "description": "brep CLI, MCP server, and agent skills that let coding agents write brepjs CAD parts and verify them on a real kernel",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
@@ -35,19 +35,21 @@
   "files": [
     "dist",
     "viewer/dist",
+    "assets",
     "reference",
     "CHANGELOG.md",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "build": "node scripts/copyReference.mjs && vite build && vite build --config viewer/vite.config.ts && node -e \"require('fs').chmodSync('dist/cli/main.js',0o755);require('fs').chmodSync('dist/cli/main.cjs',0o755);require('fs').chmodSync('dist/mcp/server.js',0o755)\"",
+    "build": "node scripts/copyReference.mjs && vite build && vite build --config viewer/vite.config.ts && vite build --config viewer/app.vite.config.ts && node -e \"require('fs').chmodSync('dist/cli/main.js',0o755);require('fs').chmodSync('dist/cli/main.cjs',0o755);require('fs').chmodSync('dist/mcp/server.js',0o755)\"",
     "typecheck": "tsgo --noEmit && tsgo -p viewer/tsconfig.json --noEmit && tsgo -p bench/tsconfig.json",
     "lint": "eslint src tests viewer bench",
     "test": "vitest run",
     "eval": "tsx bench/run.ts",
     "eval:verify": "tsx bench/verifyEval.ts",
     "eval:live": "tsx bench/live.ts",
+    "eval:claude": "tsx bench/claudeEval.ts",
     "eval:push": "tsx bench/pushScorecard.ts",
     "eval:combine": "tsx bench/combineShards.ts",
     "eval:dataset:sync": "tsx bench/syncDataset.ts",
