@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { usePlaygroundStore } from '../stores/playgroundStore';
 import { useToastStore } from '../stores/toastStore';
+import { copyToClipboard } from '../lib/copyToClipboard';
 import {
   decodeShare,
   encodeCodeQuery,
@@ -41,46 +42,33 @@ export function useUrlState() {
     }
 
     setCode(result.code);
+    usePlaygroundStore.getState().setFileName('model.ts');
     if (result.selections.length > 0) {
       setPendingSharedSelections(result.selections);
     }
 
-    if (result.legacy) {
-      const next = `${url.pathname}${encodeCodeQuery(result.code)}`;
+    const basePath = import.meta.env.BASE_URL;
+    if (result.legacy || url.pathname !== basePath) {
+      const next = `${basePath}${encodeCodeQuery(result.code, result.selections)}`;
       history.replaceState(null, '', next);
     }
   }, [setCode, setPendingSharedSelections]);
 
-  const updateUrl = (code: string) => {
-    const query = encodeCodeQuery(code, selectionsForUrl());
-    history.replaceState(null, '', `${window.location.pathname}${query}`);
-  };
-
   // Build the canonical permalink and sync it into the address bar, returning
   // the absolute URL so callers can hand it to the native share sheet.
-  const buildShareUrl = (code: string): string => {
-    const query = encodeCodeQuery(code, selectionsForUrl());
-    const url = `${window.location.origin}${window.location.pathname}${query}`;
-    history.replaceState(null, '', `${window.location.pathname}${query}`);
+  const buildShareUrl = (code?: string): string => {
+    const currentCode = code ?? usePlaygroundStore.getState().code;
+    const basePath = import.meta.env.BASE_URL;
+    const query = encodeCodeQuery(currentCode, selectionsForUrl());
+    const url = `${window.location.origin}${basePath}${query}`;
+    history.replaceState(null, '', `${basePath}${query}`);
     return url;
   };
 
-  const copyShareUrl = async (code: string) => {
+  const copyShareUrl = async (code?: string) => {
     const url = buildShareUrl(code);
-    try {
-      await navigator.clipboard.writeText(url);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = url;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional fallback for older browsers
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
+    await copyToClipboard(url);
   };
 
-  return { updateUrl, copyShareUrl, buildShareUrl };
+  return { copyShareUrl, buildShareUrl };
 }

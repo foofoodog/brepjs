@@ -16,11 +16,17 @@ export interface PlaygroundPanels {
   handleEditorAreaResize: (size: { asPercentage: number }) => void;
 }
 
-function togglePanel(ref: PanelRef): void {
+function togglePanel(ref: PanelRef, defaultExpandSize = '50%'): void {
   const panel = ref.current;
   if (!panel) return;
-  if (panel.isCollapsed()) panel.expand();
-  else panel.collapse();
+  if (panel.isCollapsed()) {
+    panel.expand();
+    if (panel.getSize().asPercentage <= 25) {
+      panel.resize(defaultExpandSize);
+    }
+  } else {
+    panel.collapse();
+  }
 }
 
 export function usePlaygroundPanels(): PlaygroundPanels {
@@ -38,6 +44,8 @@ export function usePlaygroundPanels(): PlaygroundPanels {
     togglePanel(viewerPanelRef);
   }, [viewerPanelRef]);
   const toggleEditor = useCallback(() => {
+    usePlaygroundStore.getState().setWasEditorCollapsedBeforeError(false);
+    usePlaygroundStore.getState().setResetInitiatedOnError(false);
     togglePanel(editorAreaPanelRef);
   }, [editorAreaPanelRef]);
 

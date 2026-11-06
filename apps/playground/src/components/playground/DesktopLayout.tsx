@@ -7,6 +7,7 @@ import OutputPanel from './OutputPanel';
 import CollapsedConsoleBar from './CollapsedConsoleBar';
 import BimTreePanel from './BimTreePanel';
 import FlatPatternPanel from './FlatPatternPanel';
+import ParametersPanel from './ParametersPanel';
 
 interface Props {
   panels: PlaygroundPanels;
@@ -14,6 +15,7 @@ interface Props {
   formatRef: { current: (() => void) | null };
   jumpToLineRef: { current: ((line: number) => void) | null };
   onJumpToLine: (line: number) => void;
+  onRun?: () => void;
 }
 
 export default function DesktopLayout({
@@ -22,11 +24,12 @@ export default function DesktopLayout({
   formatRef,
   jumpToLineRef,
   onJumpToLine,
+  onRun,
 }: Props) {
   const isConsoleCollapsed = usePlaygroundStore((s) => s.isConsoleCollapsed);
   const isViewerCollapsed = usePlaygroundStore((s) => s.isViewerCollapsed);
   const storage = typeof window !== 'undefined' ? localStorage : undefined;
-  const hLayout = useDefaultLayout({ id: 'playground-h', storage });
+  const hLayout = useDefaultLayout({ id: 'playground-h-v3', storage });
   const vLayout = useDefaultLayout({ id: 'playground-v', storage });
 
   return (
@@ -43,7 +46,7 @@ export default function DesktopLayout({
         collapsible
         collapsedSize="0%"
         minSize="20%"
-        defaultSize="50%"
+        defaultSize="0%"
         onResize={panels.handleEditorAreaResize}
       >
         {/* Always-mounted: collapsing this Panel sends its width to 0% but
@@ -60,6 +63,7 @@ export default function DesktopLayout({
               onCodeChange={onCodeChange}
               onFormat={formatRef}
               jumpToLineRef={jumpToLineRef}
+              onCollapseEditor={panels.toggleEditor}
             />
           </Panel>
           <Separator className="h-px bg-border-subtle" />
@@ -90,15 +94,16 @@ export default function DesktopLayout({
         collapsible
         collapsedSize="0%"
         minSize="20%"
-        defaultSize="50%"
+        defaultSize="100%"
         onResize={panels.handleViewerResize}
       >
         {isViewerCollapsed ? null : (
           <div className="relative h-full w-full">
             <ViewerPanel />
-            {/* Overlays: each renders only when the current example exposes its
-                data (BIM tree / sheet-metal flat pattern), so they never co-occur. */}
-            <BimTreePanel />
+            <div className="pointer-events-none absolute bottom-3 left-3 top-3 z-10 flex flex-col gap-2 overflow-hidden">
+              <ParametersPanel onRun={onRun} />
+              <BimTreePanel />
+            </div>
             <FlatPatternPanel />
           </div>
         )}

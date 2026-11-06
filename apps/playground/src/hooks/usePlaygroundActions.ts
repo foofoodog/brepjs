@@ -9,6 +9,7 @@ import { useUrlState } from './useUrlState';
 import { useScreenshot } from './useScreenshot';
 import { clearDraft } from './useDraftPersistence';
 import { copyToClipboard } from '../lib/copyToClipboard';
+import { meshesToLayerlingClipboard } from '../lib/layerlingClipboard';
 import { DEFAULT_CODE } from '../lib/constants';
 import type { Example } from '../lib/examples';
 
@@ -18,6 +19,7 @@ export interface PlaygroundActions {
   handleShare: () => void;
   handleExportSTL: () => void;
   handleExportSTEP: () => void;
+  handleExportLYL: () => void;
   handleExportDXF: () => void;
   handleExportIFC: () => void;
   handleExportFiles: () => void;
@@ -33,15 +35,19 @@ export function usePlaygroundActions(): PlaygroundActions {
   const addToast = useToastStore((s) => s.addToast);
   const { runCode, exportSTL, exportSTEP, exportDXF, exportIFC, exportFiles, debouncedRun } =
     useCodeExecution();
-  const { updateUrl, copyShareUrl, buildShareUrl } = useUrlState();
+  const { copyShareUrl, buildShareUrl } = useUrlState();
   const handleScreenshot = useScreenshot();
   const resetViewerDefaults = useViewerStore((s) => s.resetViewerDefaults);
 
   // Typing debounces; an external buffer swap (example/share/draft load) runs
   // immediately so the viewer reflects the switch without the 450 ms typing
   // delay — that lag was what made example switching feel unreliable.
+  // When autoRefresh is paused, automatic execution on code change is suppressed
+  // so the user can tweak parameters or edit code without firing expensive kernel runs.
   const onCodeChange = useCallback(
     (newCode: string, opts?: { immediate?: boolean }) => {
+      const autoRefresh = usePlaygroundStore.getState().autoRefresh;
+      if (!autoRefresh) return;
       if (opts?.immediate) runCode(newCode);
       else debouncedRun(newCode);
     },
@@ -49,11 +55,11 @@ export function usePlaygroundActions(): PlaygroundActions {
   );
 
   const handleRun = useCallback(() => {
-    runCode(code);
-    updateUrl(code);
+    const currentCode = usePlaygroundStore.getState().code;
+    runCode(currentCode);
     track('playground_run');
     captureEvent('playground_run');
-  }, [runCode, code, updateUrl]);
+  }, [runCode]);
 
   const handleExportSTL = useCallback(() => {
     exportSTL(code);
@@ -68,6 +74,22 @@ export function usePlaygroundActions(): PlaygroundActions {
     track('playground_export', { format: 'step' });
     captureEvent('playground_export', { format: 'step' });
   }, [exportSTEP, code, addToast]);
+
+  const handleExportLYL = useCallback(() => {
+    const meshes = usePlaygroundStore.getState().meshes;
+    const result = meshesToLayerlingClipboard(meshes);
+    if (!result) {
+      addToast('No model to copy — check that your code returns a shape.');
+      return;
+    }
+    void copyToClipboard(result.text).then((copied) => {
+      addToast(
+        copied ? 'Copied for Layerling — paste with Ctrl+V' : 'Clipboard unavailable'
+      );
+    });
+    track('playground_export', { format: 'lyl' });
+    captureEvent('playground_export', { format: 'lyl' });
+  }, [addToast]);
 
   const handleExportDXF = useCallback(() => {
     exportDXF(code);
@@ -95,9 +117,10 @@ export function usePlaygroundActions(): PlaygroundActions {
   // familiar copy-to-clipboard + toast. A dismissed share sheet rejects with
   // AbortError, which we swallow.
   const handleShare = useCallback(() => {
+    const latestCode = usePlaygroundStore.getState().code;
     const coarse = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches;
     if (coarse && typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
-      const url = buildShareUrl(code);
+      const url = buildShareUrl(latestCode);
       void navigator
         .share({ title: 'brepjs Playground', url })
         // Only count a share once the sheet actually completes — a dismissed
@@ -110,18 +133,21 @@ export function usePlaygroundActions(): PlaygroundActions {
           /* user dismissed the share sheet */
         });
     } else {
-      void copyShareUrl(code);
+      void copyShareUrl(latestCode);
       addToast('Link copied to clipboard');
       track('playground_share');
       captureEvent('playground_share');
     }
-  }, [buildShareUrl, copyShareUrl, code, addToast]);
+  }, [buildShareUrl, copyShareUrl, addToast]);
 
   const handleResetToDefault = useCallback(() => {
-    usePlaygroundStore.getState().setCode(DEFAULT_CODE);
+    const store = usePlaygroundStore.getState();
+    store.setCode(DEFAULT_CODE);
+    store.setFileName('stud-brick.ts');
     clearDraft();
     addToast('Reset to default code');
-  }, [addToast]);
+    runCode(DEFAULT_CODE);
+  }, [addToast, runCode]);
 
   // Loading swaps the editor buffer through the store; EditorPanel's sync
   // effect picks it up and replaces content via Monaco's pushEditOperations,
@@ -129,10 +155,13 @@ export function usePlaygroundActions(): PlaygroundActions {
   // overwrites edits by accident.
   const handleLoadExample = useCallback(
     (example: Example) => {
-      usePlaygroundStore.getState().setCode(example.code);
+      const store = usePlaygroundStore.getState();
+      store.setCode(example.code);
+      store.setFileName(`${example.id}.ts`);
       addToast(`Loaded: ${example.label}`);
+      runCode(example.code);
     },
-    [addToast]
+    [addToast, runCode]
   );
 
   // copyToClipboard handles both undefined `navigator.clipboard` (HTTP /
@@ -156,6 +185,7 @@ export function usePlaygroundActions(): PlaygroundActions {
       handleShare,
       handleExportSTL,
       handleExportSTEP,
+      handleExportLYL,
       handleExportDXF,
       handleExportIFC,
       handleExportFiles,
@@ -171,6 +201,7 @@ export function usePlaygroundActions(): PlaygroundActions {
       handleShare,
       handleExportSTL,
       handleExportSTEP,
+      handleExportLYL,
       handleExportDXF,
       handleExportIFC,
       handleExportFiles,

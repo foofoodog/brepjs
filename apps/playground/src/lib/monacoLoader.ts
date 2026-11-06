@@ -1,14 +1,18 @@
 import * as monaco from 'monaco-editor';
 import { loader } from '@monaco-editor/react';
+import editorWorker from 'monaco-editor/editor/editor.worker?worker';
+import tsWorker from 'monaco-editor/language/typescript/ts.worker?worker';
 
-// Without this, @monaco-editor/react falls back to its default loader, which
-// fetches the editor from cdn.jsdelivr.net at runtime. That made the
-// monaco-editor version in package.json cosmetic: the pin only supplied types
-// while users ran whatever version the loader defaulted to, which lagged the
-// pin and shipped an older bundled DOMPurify. It also put editor execution
-// outside the lockfile, where no dependency scanner could see it.
-//
-// No MonacoEnvironment.getWorker shim is needed: monaco 0.56 spawns its own
-// workers with `new Worker(new URL('...', import.meta.url), {type:'module'})`,
-// which Vite resolves and emits at build time.
+// Configure Monaco worker factory so Monaco uses Vite-bundled worker assets
+// rather than falling back to data: URI blob module workers (which fail to
+// resolve relative imports in production).
+self.MonacoEnvironment = {
+  getWorker(_, label) {
+    if (label === 'typescript' || label === 'javascript') {
+      return new tsWorker();
+    }
+    return new editorWorker();
+  },
+};
+
 loader.config({ monaco });

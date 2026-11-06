@@ -21,6 +21,7 @@ export interface ContextMenuState {
 
 interface PlaygroundState {
   code: string;
+  fileName: string;
   meshes: MeshData[];
   error: string | null;
   errorLine: number | null;
@@ -39,7 +40,12 @@ interface PlaygroundState {
   isConsoleCollapsed: boolean;
   isViewerCollapsed: boolean;
   isEditorCollapsed: boolean;
+  wasEditorCollapsedBeforeError: boolean;
+  resetInitiatedOnError: boolean;
+  lastCommittedParamKey: string | null;
   lastSuccessfulCode: string | null;
+  autoRefresh: boolean;
+  runRequestSeq: number;
   // Monotonic counter bumped once per successful render (via markRendered). The
   // mobile shell compares it against the value it last showed to flag the Viewer
   // tab when a result changed while the user was on another tab. Deliberately
@@ -55,6 +61,7 @@ interface PlaygroundState {
   pendingSharedSelections: SharedSelection[];
 
   setCode: (code: string) => void;
+  setFileName: (fileName: string) => void;
   setMeshes: (meshes: MeshData[]) => void;
   setAvailableArtifacts: (artifacts: string[]) => void;
   setBimTree: (tree: BimTreeSummary | null) => void;
@@ -66,7 +73,13 @@ interface PlaygroundState {
   setConsoleCollapsed: (collapsed: boolean) => void;
   setViewerCollapsed: (collapsed: boolean) => void;
   setEditorCollapsed: (collapsed: boolean) => void;
+  setWasEditorCollapsedBeforeError: (wasCollapsed: boolean) => void;
+  setResetInitiatedOnError: (resetInitiated: boolean) => void;
+  setLastCommittedParamKey: (key: string | null) => void;
   setLastSuccessfulCode: (code: string) => void;
+  setAutoRefresh: (autoRefresh: boolean) => void;
+  toggleAutoRefresh: () => void;
+  requestRun: () => void;
   markRendered: () => void;
   pickSelection: (selection: Selection, additive: boolean) => void;
   clearSelections: () => void;
@@ -86,6 +99,7 @@ function sameEntity(a: Selection, b: Selection): boolean {
 
 export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   code: DEFAULT_CODE,
+  fileName: 'stud-brick.ts',
   meshes: [],
   error: null,
   errorLine: null,
@@ -97,8 +111,13 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   flatPattern: null,
   isConsoleCollapsed: true,
   isViewerCollapsed: false,
-  isEditorCollapsed: false,
+  isEditorCollapsed: true,
+  wasEditorCollapsedBeforeError: false,
+  resetInitiatedOnError: false,
+  lastCommittedParamKey: null,
   lastSuccessfulCode: null,
+  autoRefresh: true,
+  runRequestSeq: 0,
   runSeq: 0,
   selections: [],
   hoverEntity: null,
@@ -106,6 +125,7 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   pendingSharedSelections: [],
 
   setCode: (code) => set({ code }),
+  setFileName: (fileName) => set({ fileName }),
   // Drop selections on every new render — they're bound to the mesh by
   // faceId/edgeId and the new mesh likely won't have the same ids.
   setMeshes: (meshes) =>
@@ -127,7 +147,16 @@ export const usePlaygroundStore = create<PlaygroundState>((set) => ({
   setConsoleCollapsed: (isConsoleCollapsed) => set({ isConsoleCollapsed }),
   setViewerCollapsed: (isViewerCollapsed) => set({ isViewerCollapsed }),
   setEditorCollapsed: (isEditorCollapsed) => set({ isEditorCollapsed }),
+  setWasEditorCollapsedBeforeError: (wasEditorCollapsedBeforeError) =>
+    set({ wasEditorCollapsedBeforeError }),
+  setResetInitiatedOnError: (resetInitiatedOnError) =>
+    set({ resetInitiatedOnError }),
+  setLastCommittedParamKey: (lastCommittedParamKey) =>
+    set({ lastCommittedParamKey }),
   setLastSuccessfulCode: (lastSuccessfulCode) => set({ lastSuccessfulCode }),
+  setAutoRefresh: (autoRefresh) => set({ autoRefresh }),
+  toggleAutoRefresh: () => set((s) => ({ autoRefresh: !s.autoRefresh })),
+  requestRun: () => set((s) => ({ runRequestSeq: s.runRequestSeq + 1 })),
   markRendered: () => set((s) => ({ runSeq: s.runSeq + 1 })),
   pickSelection: (selection, additive) =>
     set((s) => {

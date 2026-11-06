@@ -8,6 +8,7 @@ interface MobileActionSheetProps {
   onShare: () => void;
   onExportSTL: () => void;
   onExportSTEP: () => void;
+  onExportLYL: () => void;
   onExportDXF: () => void;
   onExportIFC: () => void;
   onExportFiles: () => void;
@@ -29,6 +30,7 @@ export default function MobileActionSheet({
   onShare,
   onExportSTL,
   onExportSTEP,
+  onExportLYL,
   onExportDXF,
   onExportIFC,
   onExportFiles,
@@ -74,6 +76,12 @@ export default function MobileActionSheet({
       label: 'Export STEP',
       hint: 'B-Rep for CAD',
       onSelect: onExportSTEP,
+      disabled: exportDisabled,
+    },
+    {
+      label: 'Copy for Layerling',
+      hint: 'Paste into Layerling (LYL)',
+      onSelect: onExportLYL,
       disabled: exportDisabled,
     },
     ...(canExportDXF

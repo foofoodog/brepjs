@@ -86,6 +86,28 @@ function useBoundsComputation(meshes: MeshData[]) {
   return useMemo(() => computeBounds(meshes), [meshes]);
 }
 
+function updateCameraClipPlanes(
+  bounds: { center: THREE.Vector3; radius: number },
+  camera: THREE.Camera,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- drei OrbitControls
+  controls: any
+) {
+  const { radius } = bounds;
+  const isOrtho = (camera as THREE.OrthographicCamera).isOrthographicCamera === true;
+  const fov = isOrtho ? 45 : (camera as THREE.PerspectiveCamera).fov;
+  const fovRad = (fov / 2) * (Math.PI / 180);
+  const dist = (radius / Math.sin(fovRad)) * 1.2;
+
+  const cam = camera as THREE.PerspectiveCamera | THREE.OrthographicCamera;
+  cam.near = Math.max(radius / 100, 0.01);
+  cam.far = Math.max(radius * 100, dist * 4);
+  if (controls) {
+    controls.minDistance = Math.max(radius / 100, 0.1);
+    controls.maxDistance = Math.max(controls.maxDistance ?? 0, dist * 8);
+  }
+  cam.updateProjectionMatrix();
+}
+
 function fitCamera(
   bounds: { center: THREE.Vector3; radius: number },
   camera: THREE.Camera,
@@ -137,31 +159,44 @@ function fitCamera(
 }
 
 /**
- * Inner component that adjusts the camera to fit the model whenever meshes change
- * or a manual fit is requested via the viewer store.
+ * Inner component that adjusts the camera to fit the model on initial load,
+ * when switching examples/files, or when a manual fit is requested via the
+ * viewer store — while preserving the user's camera perspective across
+ * parameter tweaks and code edits within the same file.
  */
 function AutoFit({ meshes, projection }: { meshes: MeshData[]; projection: Projection }) {
-  const { camera, controls } = useThree();
+  const { camera, controls, invalidate } = useThree();
   const bounds = useBoundsComputation(meshes);
-  const prevBoundsKey = useRef('');
+  const fileName = usePlaygroundStore((s) => s.fileName);
   const fitRequest = useViewerStore((s) => s.fitRequest);
+  const needsAutoFitRef = useRef(true);
+  const lastFileNameRef = useRef(fileName);
 
-  // Auto-fit on mesh change
+  if (lastFileNameRef.current !== fileName) {
+    lastFileNameRef.current = fileName;
+    needsAutoFitRef.current = true;
+  }
+
+  // Auto-fit on initial model load or file/example switch; otherwise preserve
+  // camera perspective and only update clip planes.
   useEffect(() => {
     if (!bounds || !controls) return;
 
-    const key = `${bounds.center.x.toFixed(2)},${bounds.center.y.toFixed(2)},${bounds.center.z.toFixed(2)},${bounds.radius.toFixed(2)}`;
-    if (key === prevBoundsKey.current) return;
-    prevBoundsKey.current = key;
-
-    fitCamera(bounds, camera, controls);
-  }, [bounds, camera, controls]);
+    if (needsAutoFitRef.current) {
+      needsAutoFitRef.current = false;
+      fitCamera(bounds, camera, controls);
+    } else {
+      updateCameraClipPlanes(bounds, camera, controls);
+    }
+    invalidate();
+  }, [bounds, camera, controls, invalidate]);
 
   // Manual fit on button click
   useEffect(() => {
     if (fitRequest === 0 || !bounds || !controls) return;
     fitCamera(bounds, camera, controls);
-  }, [fitRequest, bounds, camera, controls]);
+    invalidate();
+  }, [fitRequest, bounds, camera, controls, invalidate]);
 
   // Re-fit on projection change so ortho zoom matches the model size.
   useEffect(() => {

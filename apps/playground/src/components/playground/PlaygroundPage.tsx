@@ -14,6 +14,7 @@ import { useAutoExpandOnError } from '../../hooks/useAutoExpandOnError';
 import { useExampleRoute } from '../../hooks/useExampleRoute';
 import { SHORTCUTS } from '../../lib/shortcuts';
 import { EXAMPLES, type Example } from '../../lib/examples';
+import { hasShareParams } from '../../lib/urlCodec';
 import { startWASMPreload } from '../../lib/wasmPreloader.js';
 import Toolbar from './Toolbar';
 import StatusBar from './StatusBar';
@@ -77,10 +78,12 @@ export default function PlaygroundPage() {
 
   // Deep link: landing on /playground/examples/<id> is a permalink to that
   // example — load it into the editor so the shared link opens the running part.
+  // If the URL carries `?code=...`, useUrlState already loaded the shared code
+  // as a blank slate on the root path, so skip loading the example template.
   // Runs once on mount; in-gallery navigation loads via onSelect instead.
   useEffect(() => {
     const id = exampleRoute.focusedId;
-    if (!exampleRoute.open && id) {
+    if (!exampleRoute.open && id && !hasShareParams(new URL(window.location.href))) {
       const example = EXAMPLES.find((e) => e.id === id);
       if (example) actions.handleLoadExample(example);
     }
@@ -107,6 +110,14 @@ export default function PlaygroundPage() {
   useShortcutHelpKey(toggleShortcutHelp);
   useAutoExpandOnError(error, panels.consolePanelRef, panels.editorAreaPanelRef);
 
+  useEffect(() => {
+    return usePlaygroundStore.subscribe((state, prevState) => {
+      if (state.runRequestSeq !== prevState.runRequestSeq) {
+        actions.handleRun();
+      }
+    });
+  }, [actions.handleRun]);
+
   const commands = usePlaygroundCommands({
     actions,
     panels,
@@ -124,6 +135,7 @@ export default function PlaygroundPage() {
         onRun={actions.handleRun}
         onExportSTL={actions.handleExportSTL}
         onExportSTEP={actions.handleExportSTEP}
+        onExportLYL={actions.handleExportLYL}
         onExportDXF={actions.handleExportDXF}
         onExportIFC={actions.handleExportIFC}
         onExportFiles={actions.handleExportFiles}
@@ -131,6 +143,7 @@ export default function PlaygroundPage() {
         onOpenCommandPalette={openCommandPalette}
         onOpenHelp={openShortcutHelp}
         onOpenExamples={exampleRoute.openGallery}
+        onToggleEditor={panels.toggleEditor}
         onOpenActions={openActions}
         isRunning={isRunning}
         compact={isMobile}
@@ -149,6 +162,7 @@ export default function PlaygroundPage() {
           formatRef={editorBridges.formatRef}
           jumpToLineRef={editorBridges.jumpToLineRef}
           onJumpToLine={editorBridges.onJumpToLine}
+          onRun={actions.handleRun}
         />
       )}
 
@@ -180,6 +194,7 @@ export default function PlaygroundPage() {
         onShare={actions.handleShare}
         onExportSTL={actions.handleExportSTL}
         onExportSTEP={actions.handleExportSTEP}
+        onExportLYL={actions.handleExportLYL}
         onExportDXF={actions.handleExportDXF}
         onExportIFC={actions.handleExportIFC}
         onExportFiles={actions.handleExportFiles}
