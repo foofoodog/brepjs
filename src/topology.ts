@@ -50,6 +50,9 @@ export {
   wireLoop,
   face,
   filledFace,
+  nSidedFace,
+  edgeOnFace,
+  nurbsSurface,
   subFace,
   polygon,
   vertex,
@@ -67,6 +70,12 @@ export {
   type EllipseArcOptions,
   type BSplineApproximationOptions,
 } from './topology/primitiveFns.js';
+export type {
+  NSidedBoundaryEdge,
+  NSidedFaceOptions,
+  EdgeOnFaceOptions,
+  NurbsSurfaceInput,
+} from './topology/surfaceBuilders.js';
 
 // ── Boolean operations ──
 

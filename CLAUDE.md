@@ -6,7 +6,7 @@ Web CAD library with a layered architecture and pluggable kernel abstraction lay
 
 Layered architecture with enforced boundaries (imports flow downward only):
 
-- **Layer 0** (`kernel/`, `utils/`): Foundation, no internal imports
+- **Layer 0** (`kernel/`, `utils/`): Foundation, imports nothing above Layer 0 (`kernel/` may import `utils/`)
 - **Layer 1** (`core/`): Memory management, geometry, constants, imports kernel/utils only
 - **Layer 2** (`topology/`, `operations/`, `2d/`, `query/`, `measurement/`, `io/`, `worker/`): Domain, imports layers 0-1 + each other
 - **Layer 3** (`sketching/`, `text/`, `projection/`): High-level API, imports all lower layers
@@ -22,6 +22,7 @@ Monorepo packages:
 - `packages/brepjs-bim`: IFC/BIM parametric building elements + IFC import/export (experimental, published)
 - `packages/brepjs-families`: Declarative family layer (element trees, key paths, projection onto the CSG IR); BIM export via brepjs-bim's `familiesToBim` (experimental, published)
 - `packages/brepjs-sheetmetal`: Sheet-metal authoring + unfold/flat-pattern + DXF (experimental, published)
+- `packages/brepjs-mesh2solid`: Mesh (STL/OBJ/PLY/3MF, CAD export or scan) to B-Rep solid via `meshToSolid()`, with its Rust→WASM engine in `engine/` and the committed build in `wasm/` (rebuild with `build:engine`; experimental, unpublished: `private` and out of release-please until every tier is done)
 - `packages/brepjs-manifold`: Manifold mesh/CSG preview kernel (experimental, unpublished)
 - `packages/brepjs-viewer`: Shared React/R3F renderer (consumed by the playground and brepjs-cad; published, manual publish — unmanaged by release-please)
 - `packages/brepjs-cad`: Agent skill + verify/preview CLI + WASM viewer (published; skill also ships via the repo Claude-plugin marketplace)
@@ -70,7 +71,7 @@ Monorepo packages:
 - `Result<T,E>` in `src/core/result.ts`: prefer over throwing in layers 2-3
 - All `.ts` imports must use `.js` extensions for ESM compatibility
 - Cross-directory imports use `@/` alias (e.g. `@/kernel/index.js`); same-directory imports stay relative (`./foo.js`)
-- File naming: camelCase everywhere (no PascalCase, no kebab-case)
+- File naming: camelCase everywhere (no kebab-case), except a file whose main export is a Vue or React component, which is PascalCase (`ContactForm.vue`, `CommandPalette.tsx`)
 - kernel/ structure: shared abstractions at root (`types.ts`, `interfaces/`), OCCT code in `occt/`, brepkit code in `brepkit/`
 - Unused variables must be prefixed with `_`
 

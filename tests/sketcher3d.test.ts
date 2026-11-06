@@ -233,8 +233,7 @@ describe('Sketch class', () => {
     expect(solid).toBeDefined();
   });
 
-  it('extrude with twist', (ctx) => {
-    skipIfDiverges(ctx, 'extrudeFns.twistExtrude');
+  it('extrude with twist', () => {
     const solid = sketchRectangle(10, 10).extrude(10, { twistAngle: 45 });
     expect(solid).toBeDefined();
   });
@@ -330,6 +329,16 @@ describe('Sketcher 3D closeWithMirror', () => {
     expect(sketch).toBeDefined();
     const vol = unwrap(measureVolume(sketch.extrude(1)));
     expect(vol).toBeGreaterThan(0);
+  });
+
+  it('closes a line and arc profile on one side of its chord into its exact outline', () => {
+    // A 5 x 10 rectangle with a half disc of radius 2.5 on either short side.
+    const sketch = new Sketcher('XZ')
+      .vLine(5)
+      .threePointsArcTo([5, 5], [2.5, 7.5])
+      .vLine(-5)
+      .closeWithMirror();
+    expect(unwrap(measureVolume(sketch.extrude(1)))).toBeCloseTo(50 + Math.PI * 2.5 ** 2, 6);
   });
 });
 

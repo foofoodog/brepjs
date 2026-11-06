@@ -15,6 +15,7 @@ import {
   referenceFaceIds,
   reportingFaultyEdges,
   runEdgeTreatment,
+  refuseVanishingFilletRadius,
   unwrap,
   wrapResult,
 } from './helpers.js';
@@ -43,7 +44,8 @@ export function fillet(
     (edgeVec, startRadii, endRadii) => {
       if (!k.filletRadii) throw needsOcctWasm59('per-edge or tapered fillet radii');
       return k.filletRadii(id, edgeVec, startRadii, endRadii);
-    }
+    },
+    refuseVanishingFilletRadius
   );
   return wrapResult(k, resultId);
 }
@@ -261,8 +263,7 @@ export function filletVariable(k: OcctKernelWasm, shape: KernelShape, spec: stri
     const radii = parsed.radii;
     if (radii.length > 2) {
       throw new UnsupportedKernelOperationError(
-        'occt-wasm: filletVariable supports only a linear (<=2-point) radius profile; ' +
-          'a multi-point variable radius requires the brepkit kernel'
+        'occt-wasm: filletVariable supports only a linear (<=2-point) radius profile'
       );
     }
     const startRadius = radii[0].radius;

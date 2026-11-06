@@ -13,7 +13,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { BrepkitAdapter } from '@/kernel/brepkit/brepkitAdapter.js';
-import type { BrepkitHandle } from '@/kernel/brepkit/helpers.js';
+import { type BrepkitHandle, edgeHandle, solidHandle } from '@/kernel/brepkit/helpers.js';
 import type { BrepkitKernel } from '@/kernel/brepkit/brepkitWasmTypes.js';
 import { registerKernel, getKernel, withKernel } from '@/kernel/index.js';
 import { isUnsupportedKernelOperationError } from '@/kernel/unsupported.js';
@@ -623,6 +623,18 @@ describe('BrepkitAdapter', () => {
       expect(result.faceGroups[0]?.faceHash).toBe(100);
     });
 
+    it('a bare face carries its own id as faceHash, the same as hashCode', () => {
+      const mock = createMockBrepKernel();
+      const adapter = new BrepkitAdapter(mock);
+      const box = adapter.makeBox(1, 1, 1);
+      const face = adapter.iterShapes(box, 'face')[1];
+
+      const result = adapter.mesh(face, { tolerance: 0.1, angularTolerance: 0.5 });
+
+      expect(result.faceGroups.map((g) => g.faceHash)).toEqual([101]);
+      expect(result.faceGroups[0]?.faceHash).toBe(adapter.hashCode(face, 2 ** 31 - 1));
+    });
+
     it('meshEdges returns tessellated edge polylines', () => {
       const mock = createMockBrepKernel();
       const adapter = new BrepkitAdapter(mock);
@@ -692,6 +704,163 @@ describe('BrepkitAdapter', () => {
       const pos = adapter.vertexPosition(verts[0]);
       expect(pos).toEqual([300 * 0.1, 300 * 0.2, 300 * 0.3]);
     });
+
+    // A boolean can leave separate pieces in one kernel solid (brepkit#2167,
+    // brepkit#2184); getSolidPieces (brepkit-wasm 4.6.0) splits them.
+    it('iterShapes solid→solid returns one solid per piece the kernel finds', () => {
+      const mock = Object.assign(createMockBrepKernel(), {
+        getSolidPieces: vi.fn((_solid: number) => new Uint32Array([7, 8])),
+      });
+      const adapter = new BrepkitAdapter(mock);
+      const cut = adapter.makeBox(1, 1, 1);
+
+      const solids = adapter.iterShapes(cut, 'solid') as BrepkitHandle[];
+
+      expect(mock.getSolidPieces).toHaveBeenCalledWith((cut as BrepkitHandle).id);
+      expect(solids.map((s) => [s.type, s.id])).toEqual([
+        ['solid', 7],
+        ['solid', 8],
+      ]);
+    });
+
+    it('iterShapes solid→shell returns the shells of each piece the kernel finds', () => {
+      const mock = Object.assign(createMockBrepKernel(), {
+        getSolidPieces: vi.fn((_solid: number) => new Uint32Array([7, 8])),
+        getSolidShells: vi.fn((solid: number) => (solid === 7 ? [70] : [80, 81])),
+      });
+      const adapter = new BrepkitAdapter(mock);
+      const cut = adapter.makeBox(1, 1, 1);
+
+      const shells = adapter.iterShapes(cut, 'shell') as BrepkitHandle[];
+
+      expect(shells.map((s) => [s.type, s.id])).toEqual([
+        ['shell', 70],
+        ['shell', 80],
+        ['shell', 81],
+      ]);
+    });
+
+    it('iterShapes solid→solid keeps the handle of a solid in one piece', () => {
+      const mock = Object.assign(createMockBrepKernel(), {
+        getSolidPieces: vi.fn((_solid: number) => new Uint32Array([42])),
+      });
+      const adapter = new BrepkitAdapter(mock);
+      const hollow = adapter.makeBox(1, 1, 1);
+
+      const solids = adapter.iterShapes(hollow, 'solid');
+
+      expect(solids).toHaveLength(1);
+      expect(solids[0]).toBe(hollow);
+    });
+
+    it('iterShapes compound→solid splits each child solid into its pieces', () => {
+      const mock = Object.assign(createMockBrepKernel(), {
+        getSolidPieces: vi.fn((solid: number) =>
+          solid === 11 ? new Uint32Array([21, 22]) : new Uint32Array([solid])
+        ),
+        getCompoundSolids: vi.fn((_compound: number) => [11, 12]),
+      });
+      const adapter = new BrepkitAdapter(mock);
+      const both = adapter.makeCompound([adapter.makeBox(1, 1, 1), adapter.makeBox(1, 1, 1)]);
+
+      const ids = (adapter.iterShapes(both, 'solid') as BrepkitHandle[]).map((s) => s.id);
+
+      expect(ids).toEqual([21, 22, 12]);
+    });
+
+    it('iterShapes solid→solid returns the solid whole on a kernel without getSolidPieces', () => {
+      const mock = createMockBrepKernel();
+      const adapter = new BrepkitAdapter(mock);
+      const box = adapter.makeBox(1, 1, 1);
+
+      const solids = adapter.iterShapes(box, 'solid');
+
+      expect(solids).toHaveLength(1);
+      expect(solids[0]).toBe(box);
+    });
+  });
+
+  // getSolidPieces builds new solids and shells for a solid in several pieces on
+  // every call, and the arena frees nothing one handle at a time.
+  describe('solid pieces are split once', () => {
+    const drawing = JSON.stringify({ visible: [], hidden: [] });
+    const splittingMock = () => {
+      let next = 70;
+      return Object.assign(createMockBrepKernel(), {
+        getSolidPieces: vi.fn((solid: number) =>
+          solid === 11 ? new Uint32Array([next++, next++]) : new Uint32Array([solid])
+        ),
+        getCompoundSolids: vi.fn((_compound: number) => [11, 12]),
+        getSolidShells: vi.fn((solid: number) => [solid + 100]),
+        projectSolidsEdges: vi.fn(
+          (_solids: Uint32Array | number[], ..._view: unknown[]) => drawing
+        ),
+        restore: vi.fn((_checkpoint: number) => {}),
+        executeBatch: vi.fn((_json: string) => '[]'),
+      });
+    };
+    const pieceIds = (adapter: BrepkitAdapter, shape: unknown) =>
+      (adapter.iterShapes(shape, 'solid') as BrepkitHandle[]).map((s) => s.id);
+
+    it('gives a solid the same pieces on every traversal', () => {
+      const adapter = new BrepkitAdapter(splittingMock());
+      const solid = solidHandle(11);
+
+      const first = pieceIds(adapter, solid);
+
+      expect(first).toEqual([70, 71]);
+      expect(pieceIds(adapter, solid)).toEqual(first);
+    });
+
+    it('asks the kernel once per solid across solid, shell, volume and projection traversals', () => {
+      const mock = splittingMock();
+      const adapter = new BrepkitAdapter(mock);
+      const both = adapter.makeCompound([adapter.makeBox(1, 1, 1), adapter.makeBox(1, 1, 1)]);
+
+      const pieces = adapter.iterShapes(both, 'solid');
+      adapter.iterShapes(both, 'solid');
+      adapter.volume(both);
+      adapter.projectEdges(both, [0, -100, 0], [0, 1, 0], [1, 0, 0]);
+      adapter.iterShapes(solidHandle(11), 'shell');
+      for (const piece of pieces) adapter.iterShapes(piece, 'shell');
+
+      expect(mock.getSolidPieces.mock.calls.map((c) => c[0])).toEqual([11, 12]);
+    });
+
+    it("keeps each kernel's pieces apart", () => {
+      const mocks = [splittingMock(), splittingMock()];
+      const adapters = mocks.map((m) => new BrepkitAdapter(m));
+
+      for (const adapter of adapters) {
+        pieceIds(adapter, solidHandle(11));
+        pieceIds(adapter, solidHandle(11));
+      }
+
+      for (const mock of mocks) expect(mock.getSolidPieces).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      [
+        'a checkpoint restore',
+        (adapter: BrepkitAdapter) => {
+          adapter.restoreCheckpoint(0);
+        },
+      ],
+      ['a batch', (adapter: BrepkitAdapter) => void adapter.executeBatch('[]')],
+      ['healing it in place', (adapter: BrepkitAdapter) => void adapter.healSolid(solidHandle(11))],
+      ['fixing it in place', (adapter: BrepkitAdapter) => void adapter.fixShape(solidHandle(11))],
+    ])('splits a solid again after %s', (_change, change) => {
+      const mock = splittingMock();
+      const adapter = new BrepkitAdapter(mock);
+      pieceIds(adapter, solidHandle(11));
+      pieceIds(adapter, solidHandle(11));
+      expect(mock.getSolidPieces).toHaveBeenCalledTimes(1);
+
+      change(adapter);
+
+      expect(pieceIds(adapter, solidHandle(11))).toEqual([72, 73]);
+      expect(mock.getSolidPieces).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('measurement', () => {
@@ -741,12 +910,99 @@ describe('BrepkitAdapter', () => {
       expect(bb.max).toEqual([1, 1, 1]);
     });
 
+    it("boundingBox of an analytic arc reaches the circle's top inside its span", () => {
+      const rad = (deg: number) => (deg * Math.PI) / 180;
+      const at = (t: number): [number, number, number] => [10 * Math.cos(t), 10 * Math.sin(t), 0];
+      // brepkit 4.5.10 on reports an arc's own span, not [0, 2π], as its parameters.
+      const mock = Object.assign(createMockBrepKernel(), {
+        getEdgeCurveType: vi.fn((_edge: number) => 'CIRCLE'),
+        getEdgeCurveParameters: vi.fn((_edge: number) => [rad(20), rad(110)]),
+        evaluateEdgeCurve: vi.fn((_edge: number, t: number) => at(t)),
+        getEdgeVertices: vi.fn((_edge: number) => [...at(rad(20)), ...at(rad(110))]),
+      });
+      const adapter = new BrepkitAdapter(mock);
+      const arc = adapter.iterShapes(adapter.makeBox(1, 1, 1), 'edge')[0];
+
+      const bb = adapter.boundingBox(arc);
+
+      expect(bb.max[1]).toBeCloseTo(10, 12);
+      expect(bb.min[0]).toBeCloseTo(at(rad(110))[0], 12);
+    });
+
     it('centerOfMass returns coordinates', () => {
       const mock = createMockBrepKernel();
       const adapter = new BrepkitAdapter(mock);
       const box = adapter.makeBox(2, 2, 2);
 
       expect(adapter.centerOfMass(box)).toEqual([0, 0, 0]);
+    });
+  });
+
+  // A compound's own handle reached projectEdges as if it were a solid
+  // (brepkit#2185); projectSolidsEdges (brepkit-wasm 4.6.7) takes its solids.
+  describe('projectEdges', () => {
+    const drawing = JSON.stringify({ visible: [[0, 0, 1, 0]], hidden: [[0, 1, 1, 1]] });
+    const projectSolid = (_solid: number, ..._view: unknown[]) => drawing;
+    const projectSolids = (_solids: Uint32Array | number[], ..._view: unknown[]) => drawing;
+    const view = [
+      [0, -100, 0],
+      [0, 1, 0],
+      [1, 0, 0],
+    ] as const;
+
+    it('projects every solid of a compound together, so each can hide the others', () => {
+      const mock = Object.assign(createMockBrepKernel(), {
+        getCompoundSolids: vi.fn((_compound: number) => [11, 12]),
+        projectEdges: vi.fn(projectSolid),
+        projectSolidsEdges: vi.fn(projectSolids),
+      });
+      const adapter = new BrepkitAdapter(mock);
+      const both = adapter.makeCompound([adapter.makeBox(1, 1, 1), adapter.makeBox(1, 1, 1)]);
+
+      const result = adapter.projectEdges(both, [...view[0]], [...view[1]], [...view[2]]);
+
+      expect(mock.projectEdges).not.toHaveBeenCalled();
+      expect(Array.from(mock.projectSolidsEdges.mock.calls[0]?.[0] ?? [])).toEqual([11, 12]);
+      expect(adapter.iterShapes(result.hidden.outline, 'edge')).toHaveLength(1);
+    });
+
+    it('projects a lone solid through projectEdges', () => {
+      const mock = Object.assign(createMockBrepKernel(), {
+        projectEdges: vi.fn(projectSolid),
+        projectSolidsEdges: vi.fn(projectSolids),
+      });
+      const adapter = new BrepkitAdapter(mock);
+      const box = adapter.makeBox(1, 1, 1);
+
+      adapter.projectEdges(box, [...view[0]], [...view[1]], [...view[2]]);
+
+      expect(mock.projectEdges.mock.calls[0]?.[0]).toBe((box as BrepkitHandle).id);
+      expect(mock.projectSolidsEdges).not.toHaveBeenCalled();
+    });
+
+    it('projects each solid of a compound in turn on a kernel without projectSolidsEdges', () => {
+      const mock = Object.assign(createMockBrepKernel(), {
+        getCompoundSolids: vi.fn((_compound: number) => [11, 12]),
+        projectEdges: vi.fn(projectSolid),
+      });
+      const adapter = new BrepkitAdapter(mock);
+      const both = adapter.makeCompound([adapter.makeBox(1, 1, 1), adapter.makeBox(1, 1, 1)]);
+
+      const result = adapter.projectEdges(both, [...view[0]], [...view[1]], [...view[2]]);
+
+      expect(mock.projectEdges.mock.calls.map((c) => c[0])).toEqual([11, 12]);
+      expect(adapter.iterShapes(result.visible.outline, 'edge')).toHaveLength(2);
+    });
+
+    it('refuses a shape that holds no solid', () => {
+      const mock = Object.assign(createMockBrepKernel(), { projectEdges: vi.fn(projectSolid) });
+      const adapter = new BrepkitAdapter(mock);
+      const face = adapter.iterShapes(adapter.makeBox(1, 1, 1), 'face')[0];
+
+      expect(() => adapter.projectEdges(face, [...view[0]], [...view[1]], [...view[2]])).toThrow(
+        'needs a solid or a compound of solids'
+      );
+      expect(mock.projectEdges).not.toHaveBeenCalled();
     });
   });
 
@@ -899,6 +1155,57 @@ describe('BrepkitAdapter', () => {
     });
   });
 
+  // A shell from sew held the id of the solid the kernel wraps it in, so it
+  // measured no area and meshed some other shell (brepkit#2196).
+  describe('sewn shells', () => {
+    const sewingMock = () =>
+      Object.assign(createMockBrepKernel(), {
+        weldShellsAndFaces: vi.fn((_faces: Uint32Array | number[], _tolerance: number) => 50),
+        getSolidShells: vi.fn((_solid: number) => new Uint32Array([60])),
+        getShellFaces: vi.fn((_shell: number) => [100, 101, 102]),
+      });
+    const sewBox = (adapter: BrepkitAdapter) =>
+      adapter.sew(adapter.iterShapes(adapter.makeBox(1, 1, 1), 'face'));
+
+    it('sew returns the sewn shell, not the solid the kernel wraps it in', () => {
+      const mock = sewingMock();
+      const adapter = new BrepkitAdapter(mock);
+
+      const shell = sewBox(adapter) as BrepkitHandle;
+
+      expect(mock.getSolidShells).toHaveBeenCalledWith(50);
+      expect([shell.type, shell.id]).toEqual(['shell', 60]);
+    });
+
+    it('measures a shell as the sum of its faces', () => {
+      const mock = sewingMock();
+      const adapter = new BrepkitAdapter(mock);
+
+      expect(adapter.area(sewBox(adapter))).toBe(12);
+      expect(mock.getShellFaces).toHaveBeenCalledWith(60);
+    });
+
+    it("meshes a shell's own faces", () => {
+      const mock = sewingMock();
+      const adapter = new BrepkitAdapter(mock);
+
+      const result = adapter.mesh(sewBox(adapter), { tolerance: 0.1, angularTolerance: 0.5 });
+
+      expect(mock.getShellFaces).toHaveBeenCalledWith(60);
+      expect(result.faceGroups.map((g) => g.faceHash)).toEqual([100, 101, 102]);
+    });
+
+    it('solidFromShell builds the solid on the shell it is given', () => {
+      const mock = sewingMock();
+      const adapter = new BrepkitAdapter(mock);
+
+      const solid = adapter.solidFromShell(sewBox(adapter)) as BrepkitHandle;
+
+      expect(mock.solidFromShell).toHaveBeenCalledWith(60);
+      expect(solid.type).toBe('solid');
+    });
+  });
+
   describe('history tracking', () => {
     it('translateWithHistory returns 1:1 face mapping for transforms', () => {
       const mock = createMockBrepKernel();
@@ -1000,6 +1307,132 @@ describe('BrepkitAdapter', () => {
 
       expect((compound as BrepkitHandle).type).toBe('compound');
       expect(mock.makeCompound).toHaveBeenCalled();
+    });
+  });
+
+  // brepkit-wasm 4.6.4 on refuses a face on a wire whose edges do not run end to
+  // end, and its makeWire takes every edge as it runs.
+  describe('wires whose edges run against the chain', () => {
+    function chainMock(
+      ends: Record<number, number[]>,
+      {
+        types = {},
+        nurbs = {},
+      }: { types?: Record<number, string>; nurbs?: Record<number, string> } = {}
+    ) {
+      let next = 500;
+      // A rebuilt edge runs between the first six of its arguments.
+      const rebuilt = (...args: unknown[]) => {
+        const id = next++;
+        ends[id] = args.slice(0, 6) as number[];
+        return id;
+      };
+      return Object.assign(createMockBrepKernel(), {
+        getEdgeVertices: vi.fn((edge: number) => ends[edge] ?? []),
+        getEdgeCurveType: vi.fn((edge: number) => types[edge] ?? 'LINE'),
+        getEdgeNurbsData: vi.fn((edge: number): string | null => nurbs[edge] ?? null),
+        makeLineEdge: vi.fn(rebuilt),
+        makeEllipseArc3d: vi.fn(rebuilt),
+        makeNurbsEdge: vi.fn(rebuilt),
+        makeWire: vi.fn((_edges: Uint32Array | number[], _closed: boolean) => 900),
+      });
+    }
+    const edges = (...ids: number[]) => ids.map((id) => edgeHandle(id));
+
+    it('turns a line that runs the other way and closes the chain', () => {
+      const mock = chainMock({
+        1: [0, 0, 0, 1, 0, 0],
+        2: [1, 1, 0, 1, 0, 0],
+        3: [1, 1, 0, 0, 0, 0],
+      });
+      const adapter = new BrepkitAdapter(mock);
+
+      adapter.makeWireFromMixed(edges(1, 2, 3));
+
+      expect(mock.makeLineEdge).toHaveBeenCalledWith(1, 0, 0, 1, 1, 0);
+      expect(mock.makeWire).toHaveBeenCalledWith([1, 500, 3], true);
+    });
+
+    it("chains a mirrored half that leaves from the first half's start", () => {
+      const mock = chainMock({
+        1: [0, 0, 0, 1, 1, 0],
+        2: [1, 1, 0, 2, 0, 0],
+        3: [0, 0, 0, 1, -1, 0],
+        4: [1, -1, 0, 2, 0, 0],
+      });
+      const adapter = new BrepkitAdapter(mock);
+
+      adapter.makeWireFromMixed(edges(1, 2, 3, 4));
+
+      expect(mock.makeWire).toHaveBeenCalledWith([1, 2, 500, 501], true);
+      expect(mock.makeLineEdge.mock.calls).toEqual([
+        [2, 0, 0, 1, -1, 0],
+        [1, -1, 0, 0, 0, 0],
+      ]);
+    });
+
+    it('turns a NURBS edge by reversing its poles, weights and knots', () => {
+      const curve = {
+        degree: 2,
+        knots: [0, 0, 0, 0.25, 1, 1, 1],
+        controlPoints: [0, 0, 0, 0.5, 1, 0, 1.5, 1, 0, 2, 0, 0],
+        weights: [1, 0.5, 2, 1],
+      };
+      const mock = chainMock(
+        { 1: [0, 0, 0, 2, 0, 0], 2: [0, 0, 0, 2, 0, 0] },
+        { nurbs: { 2: JSON.stringify(curve) } }
+      );
+      const adapter = new BrepkitAdapter(mock);
+
+      adapter.makeWireFromMixed(edges(1, 2));
+
+      expect(mock.makeNurbsEdge).toHaveBeenCalledWith(
+        2,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        [0, 0, 0, 0.75, 1, 1, 1],
+        [2, 0, 0, 1.5, 1, 0, 0.5, 1, 0, 0, 0, 0],
+        [1, 2, 0.5, 1]
+      );
+    });
+
+    it('turns an elliptic arc about the opposite axis', () => {
+      const mock = Object.assign(
+        chainMock(
+          { 1: [0, 0, 0, 0, 2, 0], 2: [3, 0, 0, 0, 2, 0], 3: [3, 0, 0, 0, 0, 0] },
+          { types: { 2: 'ELLIPSE' } }
+        ),
+        {
+          evaluateEdgeCurve: vi.fn((_edge: number, t: number) => [
+            3 * Math.cos(t),
+            2 * Math.sin(t),
+            0,
+          ]),
+        }
+      );
+      const adapter = new BrepkitAdapter(mock);
+
+      adapter.makeWireFromMixed(edges(1, 2, 3));
+
+      const [args] = mock.makeEllipseArc3d.mock.calls;
+      expect(args?.map((x) => Math.round(Number(x) * 1e9) / 1e9 + 0)).toEqual([
+        0, 2, 0, 3, 0, 0, 0, 0, 0, 0, 0, -1, 1, 0, 0, 3, 2,
+      ]);
+      expect(mock.makeWire).toHaveBeenCalledWith([1, 500, 3], true);
+    });
+
+    it('leaves edges that make no single chain as given', () => {
+      const mock = chainMock({ 1: [0, 0, 0, 1, 0, 0], 2: [5, 5, 0, 6, 5, 0] });
+      const adapter = new BrepkitAdapter(mock);
+
+      adapter.makeWireFromMixed(edges(1, 2));
+
+      expect(mock.makeWire).toHaveBeenCalledWith([1, 2], false);
+      expect(mock.makeLineEdge).not.toHaveBeenCalled();
     });
   });
 
@@ -1432,88 +1865,119 @@ describe('BrepkitAdapter', () => {
   });
 
   describe('fillet (variable radius)', () => {
-    it('refuses a radius that varies along an edge before filleting anything', () => {
-      const mock = createMockBrepKernel();
+    /**
+     * A mock kernel whose probe fillet, a 10 mm cube edge rounded from 1 to 2,
+     * leaves `probeVolume`: 995 reads as a round, 988.3 as a flat bevel.
+     */
+    function lawKernel(probeVolume = 995) {
+      const mock = Object.assign(createMockBrepKernel(), {
+        checkpoint: vi.fn(() => 7),
+        restore: vi.fn((_checkpoint: number) => {}),
+        discardCheckpoint: vi.fn((_checkpoint: number) => {}),
+      });
+      mock.volume.mockReturnValue(probeVolume);
+      return mock;
+    }
+
+    /** The specs filletVariable got after the adapter's probe. */
+    function lawSpecs(mock: ReturnType<typeof lawKernel>): unknown[] {
+      return mock.filletVariable.mock.calls.slice(1).map(([, json]) => JSON.parse(json));
+    }
+
+    it('fillets a radius that varies along an edge along a linear law', () => {
+      const mock = lawKernel();
       const adapter = new BrepkitAdapter(mock);
 
       const solid = adapter.makeBox(10, 10, 10);
       const edges = (adapter.iterShapes(solid, 'edge') as BrepkitHandle[]).slice(0, 2);
-      const near = edges[0];
-      for (const radius of [
-        [1, 3] as [number, number],
-        // A constant edge first: the check must reject before filleting any group.
-        (edge: unknown): number | [number, number] => (edge === near ? 2 : [2, 4]),
-      ]) {
-        let caught: unknown;
-        try {
-          adapter.fillet(solid, edges, radius);
-        } catch (e) {
-          caught = e;
-        }
-        expect(isUnsupportedKernelOperationError(caught)).toBe(true);
-      }
+      const [near, far] = edges.map((edge) => edge.id);
+      adapter.fillet(solid, edges, [1, 3]);
+      adapter.fillet(solid, edges, (edge) => ((edge as BrepkitHandle).id === near ? 2 : [2, 4]));
+
       expect(mock.fillet).not.toHaveBeenCalled();
-      expect(mock.filletVariable).not.toHaveBeenCalled();
+      expect(lawSpecs(mock)).toEqual([
+        [
+          { edge: near, law: 'linear', start: 1, end: 3 },
+          { edge: far, law: 'linear', start: 1, end: 3 },
+        ],
+        [
+          { edge: near, law: 'constant', start: 2, end: 2 },
+          { edge: far, law: 'linear', start: 2, end: 4 },
+        ],
+      ]);
     });
 
-    it('fillets one constant radius for every edge with fillet', () => {
-      const mock = createMockBrepKernel();
+    it('fillets one constant radius with fillet and different radii with filletVariable', () => {
+      const mock = lawKernel();
       const adapter = new BrepkitAdapter(mock);
 
       const solid = adapter.makeBox(10, 10, 10);
       const edges = (adapter.iterShapes(solid, 'edge') as BrepkitHandle[]).slice(0, 2);
-      const near = edges[0];
+      const [near, far] = edges.map((edge) => edge.id);
       adapter.fillet(solid, edges, [3, 3]);
       adapter.fillet(solid, edges, () => [2, 2]);
 
       const calls: unknown[][] = mock.fillet.mock.calls;
       expect(calls.map((call) => call[2])).toEqual([3, 2]);
-
-      let caught: unknown;
-      try {
-        adapter.fillet(solid, edges, (edge) => (edge === near ? 1 : 2));
-      } catch (e) {
-        caught = e;
-      }
-      expect(isUnsupportedKernelOperationError(caught)).toBe(true);
-      expect(mock.fillet).toHaveBeenCalledTimes(2);
       expect(mock.filletVariable).not.toHaveBeenCalled();
+
+      adapter.fillet(solid, edges, (edge) => ((edge as BrepkitHandle).id === near ? 1 : 2));
+      expect(mock.fillet).toHaveBeenCalledTimes(2);
+      expect(lawSpecs(mock)).toEqual([
+        [
+          { edge: near, law: 'constant', start: 1, end: 1 },
+          { edge: far, law: 'constant', start: 2, end: 2 },
+        ],
+      ]);
     });
 
-    it('filletVariable fillets a constant profile on the edge its hash names', () => {
-      const mock = createMockBrepKernel();
+    it('filletVariable fillets a profile on the edge its hash names, two points at most', () => {
+      const mock = lawKernel();
       const adapter = new BrepkitAdapter(mock);
       const solid = adapter.makeBox(10, 10, 10);
-
-      adapter.filletVariable(
-        solid,
+      const spec = (...radii: number[]) =>
         JSON.stringify({
           edge: 201,
-          radii: [
-            { param: 0, radius: 2 },
-            { param: 1, radius: 2 },
-          ],
-        })
-      );
+          radii: radii.map((radius, i) => ({ param: i / (radii.length - 1 || 1), radius })),
+        });
+
+      adapter.filletVariable(solid, spec(2, 2));
       expect(mock.fillet).toHaveBeenCalledWith((solid as BrepkitHandle).id, [201], 2);
+
+      adapter.filletVariable(solid, spec(2, 5));
+      expect(mock.filletVariable).toHaveBeenLastCalledWith(
+        (solid as BrepkitHandle).id,
+        JSON.stringify([{ edge: 201, law: 'linear', start: 2, end: 5 }])
+      );
 
       let caught: unknown;
       try {
-        adapter.filletVariable(
-          solid,
-          JSON.stringify({
-            edge: 201,
-            radii: [
-              { param: 0, radius: 2 },
-              { param: 1, radius: 5 },
-            ],
-          })
-        );
+        adapter.filletVariable(solid, spec(2, 4, 5));
       } catch (e) {
         caught = e;
       }
       expect(isUnsupportedKernelOperationError(caught)).toBe(true);
-      expect(mock.filletVariable).not.toHaveBeenCalled();
+      expect(mock.filletVariable).toHaveBeenCalledTimes(2);
+    });
+
+    it('refuses a law on a brepkit-wasm that cuts a bevel along it, probing once', () => {
+      const mock = lawKernel(1000 - 70 / 6);
+      const adapter = new BrepkitAdapter(mock);
+      const solid = adapter.makeBox(10, 10, 10);
+      const edges = (adapter.iterShapes(solid, 'edge') as BrepkitHandle[]).slice(0, 1);
+
+      for (let i = 0; i < 2; i++) {
+        let caught: unknown;
+        try {
+          adapter.fillet(solid, edges, [1, 3]);
+        } catch (e) {
+          caught = e;
+        }
+        expect(isUnsupportedKernelOperationError(caught)).toBe(true);
+      }
+      expect(mock.filletVariable).toHaveBeenCalledOnce();
+      expect(mock.restore).toHaveBeenCalledExactlyOnceWith(7);
+      expect(mock.discardCheckpoint).toHaveBeenCalledExactlyOnceWith(7);
     });
 
     it('uses fast path for constant radius', () => {
@@ -1526,6 +1990,38 @@ describe('BrepkitAdapter', () => {
 
       expect(mock.fillet).toHaveBeenCalledOnce();
       expect(mock.filletVariable).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sweepPipeShell (auxiliary spine)', () => {
+    it('refuses an arc spine or guide rather than sweeping along its chord', () => {
+      let arcId = -1;
+      const mock = Object.assign(createMockBrepKernel(), {
+        guidedSweep: vi.fn((_face: number, ..._curves: unknown[]) => 99),
+        getEdgeCurveType: vi.fn((edge: number) => (edge === arcId ? 'CIRCLE' : 'LINE')),
+      });
+      const adapter = new BrepkitAdapter(mock);
+      const face = adapter.makeFace(adapter.makeWire([adapter.makeLineEdge([0, 0, 0], [1, 0, 0])]));
+      const line = adapter.makeLineEdge([0, 0, 0], [0, 0, 10]);
+      const arc = adapter.makeLineEdge([1, 0, 0], [0, 1, 10]);
+      arcId = (arc as BrepkitHandle).id;
+
+      for (const [spine, auxiliary] of [
+        [line, arc],
+        [arc, line],
+      ]) {
+        let caught: unknown;
+        try {
+          adapter.sweepPipeShell(face, spine, { auxiliary });
+        } catch (e) {
+          caught = e;
+        }
+        expect(isUnsupportedKernelOperationError(caught)).toBe(true);
+      }
+      expect(mock.guidedSweep).not.toHaveBeenCalled();
+
+      adapter.sweepPipeShell(face, line, { auxiliary: line });
+      expect(mock.guidedSweep).toHaveBeenCalledOnce();
     });
   });
 

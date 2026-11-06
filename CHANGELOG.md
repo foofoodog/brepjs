@@ -1,5 +1,54 @@
 # Changelog
 
+## [20.18.0](https://github.com/andymai/brepjs/compare/brepjs-v20.17.0...brepjs-v20.18.0) (2026-11-03)
+
+
+### Features
+
+* **topology:** build B-spline surfaces exactly from poles and knots (occt-wasm 5.15.0) ([#2603](https://github.com/andymai/brepjs/issues/2603)) ([4b69a24](https://github.com/andymai/brepjs/commit/4b69a2466626d4854bd20cf68120cb087a6acc6c))
+
+## [20.17.0](https://github.com/andymai/brepjs/compare/brepjs-v20.16.0...brepjs-v20.17.0) (2026-11-02)
+
+
+### Features
+
+* **topology:** fill N-sided faces and lay edges on faces (occt-wasm 5.12.0) ([#2601](https://github.com/andymai/brepjs/issues/2601)) ([5703c49](https://github.com/andymai/brepjs/commit/5703c49f69fd98a0f3b068c94a1ca63cc37d30fe))
+
+## [20.16.0](https://github.com/andymai/brepjs/compare/brepjs-v20.15.0...brepjs-v20.16.0) (2026-11-02)
+
+
+### Features
+
+* **mesh2solid:** add the /mesh-to-solid page as an undeployed app ([#2598](https://github.com/andymai/brepjs/issues/2598)) ([f740865](https://github.com/andymai/brepjs/commit/f740865c46b9d8a0dad083701d872ef6ea66e586))
+
+## [20.15.0](https://github.com/andymai/brepjs/compare/brepjs-v20.14.0...brepjs-v20.15.0) (2026-11-02)
+
+
+### Features
+
+* **mesh2cad:** add tier 0 mesh-to-solid conversion ([#2587](https://github.com/andymai/brepjs/issues/2587)) ([65d352e](https://github.com/andymai/brepjs/commit/65d352ee3873c02c781015df9dd0abef4764815e))
+
+## [20.14.0](https://github.com/andymai/brepjs/compare/brepjs-v20.13.6...brepjs-v20.14.0) (2026-10-30)
+
+
+### Features
+
+* **fillet:** let a fillet radius run to zero at one end of an edge ([#2575](https://github.com/andymai/brepjs/issues/2575)) ([8400cc5](https://github.com/andymai/brepjs/commit/8400cc566e3bef1271713405368ab75123d58cdc))
+
+## [20.13.6](https://github.com/andymai/brepjs/compare/brepjs-v20.13.5...brepjs-v20.13.6) (2026-10-30)
+
+
+### Bug Fixes
+
+* **brepkit:** fillet along a radius law and twist a sweep on brepkit-wasm 4.6.9 ([#2573](https://github.com/andymai/brepjs/issues/2573)) ([ec163de](https://github.com/andymai/brepjs/commit/ec163deb127d5e9a48953679f3298c761b7246f0))
+
+## [20.13.5](https://github.com/andymai/brepjs/compare/brepjs-v20.13.4...brepjs-v20.13.5) (2026-10-30)
+
+
+### Bug Fixes
+
+* **brepkit:** split a solid's pieces and project compounds on brepkit-wasm 4.6.7 ([#2571](https://github.com/andymai/brepjs/issues/2571)) ([61d4a7b](https://github.com/andymai/brepjs/commit/61d4a7be0059e17e172942a1425a1fc02447c411))
+
 ## [20.13.4](https://github.com/andymai/brepjs/compare/brepjs-v20.13.3...brepjs-v20.13.4) (2026-10-30)
 
 
