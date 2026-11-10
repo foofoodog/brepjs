@@ -130,6 +130,17 @@ async function frameModel(page: Page): Promise<Box> {
     for (const el of document.querySelectorAll(sel)) {
       (el as HTMLElement).style.display = 'none';
     }
+    // Also hide any floating ViewerControls containers
+    for (const el of document.querySelectorAll('button')) {
+      let cur = el.parentElement;
+      while (cur && cur !== document.body) {
+        if (window.getComputedStyle(cur).position === 'absolute') {
+          cur.style.display = 'none';
+          break;
+        }
+        cur = cur.parentElement;
+      }
+    }
   });
   await new Promise((r) => setTimeout(r, 100));
 

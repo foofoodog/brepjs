@@ -4637,4 +4637,191 @@ export default [
 ];
 `,
   },
+  {
+    id: 'box-handle',
+    label: 'Box Handle & Stopper',
+    description:
+      'Parametric cardboard box handle strap with 45° retention tabs and matching reinforcement stopper plate.',
+    code: `import {
+  box,
+  cutAll,
+  draw,
+  edgeFinder,
+  fillet,
+  fuseAll,
+  getBounds,
+  rotate,
+  translate,
+  unwrap,
+} from 'brepjs/quick';
+import type { Edge } from 'brepjs/quick';
+import { color } from 'brepjs/playground';
+
+/* [Handle] */
+const handle_length = 140; // [80:5:200] Span between tab centers (mm)
+const handle_width = 1.5;  // [1:0.1:4] Strap wall thickness (mm)
+const handle_height = 17;  // [10:1:30] Strap width / height in Z (mm)
+const stop_length = 27;    // [15:1:40] Retention tab length (mm)
+const stop_width = 2.5;    // [1.5:0.1:5] Retention tab thickness (mm)
+const handle_r = 5;        // [0:0.5:8] Fillet radius on tab lead-in edges (mm)
+
+/* [Stopper Plate] */
+const stopper_length = 147; // [90:5:220] Overall plate length (mm)
+const stopper_width = 35;   // [20:1:50] Wide head width (mm)
+const stopper_height = 1.5; // [1:0.1:4] Plate thickness (mm)
+const hole_length = 19;     // [12:1:30] Slot length in Y (mm)
+const hole_width = 8;       // [4:0.5:15] Slot width in X (mm)
+const side_length = 35;     // [20:1:50] Wide end length in X (mm)
+const strait_width = 20;    // [12:1:35] Narrow waist width in Y (mm)
+const stopper_r1 = 5;       // [0:0.5:10] Outer 4 corner fillet radius (mm)
+const stopper_r2 = 13;      // [5:1:25] Concave waist fillet radius (mm)
+const stopper_r3 = 3;       // [1:0.5:8] Convex shoulder fillet radius (mm)
+
+/* [Layout & Appearance] */
+const partSpacing = 40;     // [20:5:100] Spacing in Y between parts (mm)
+const showHandle = true;    // Render handle strap
+const showStopper = true;   // Render reinforcement plate
+
+/* [Hidden] */
+function arcMidpoint(pStart: [number, number], pEnd: [number, number], pCenter: [number, number], radius: number): [number, number] {
+  const a1 = Math.atan2(pStart[1] - pCenter[1], pStart[0] - pCenter[0]);
+  const a2 = Math.atan2(pEnd[1] - pCenter[1], pEnd[0] - pCenter[0]);
+  let diff = a2 - a1;
+  while (diff < -Math.PI) diff += 2 * Math.PI;
+  while (diff > Math.PI) diff -= 2 * Math.PI;
+  const am = a1 + diff / 2;
+  return [pCenter[0] + radius * Math.cos(am), pCenter[1] + radius * Math.sin(am)];
+}
+
+// ── Stopper (Reinforcement Plate) ────────────────────────────────────────────
+
+function makeStopper() {
+  const halfL = stopper_length / 2;
+  const halfW = stopper_width / 2;
+  const halfWaist = strait_width / 2;
+
+  // Tangent S-curve transition between waist (r2) and shoulder (r3)
+  const dy = (halfWaist + stopper_r2) - (halfW - stopper_r3);
+  const dist = stopper_r2 + stopper_r3;
+  const dx = Math.sqrt(Math.max(0, dist * dist - dy * dy));
+
+  const c3x = -halfL + side_length - (stopper_r3 * 0.592);
+  const c2x = c3x + dx;
+  const tx = c3x + stopper_r3 * (dx / dist);
+  const ty = (halfW - stopper_r3) + stopper_r3 * (dy / dist);
+
+  // 4-quadrant arc midpoints
+  const m_q2_w = arcMidpoint([c2x, halfWaist], [tx, ty], [c2x, halfWaist + stopper_r2], stopper_r2);
+  const m_q2_s = arcMidpoint([tx, ty], [c3x, halfW], [c3x, halfW - stopper_r3], stopper_r3);
+  const m_q2_c = arcMidpoint([-halfL + stopper_r1, halfW], [-halfL, halfW - stopper_r1], [-halfL + stopper_r1, halfW - stopper_r1], stopper_r1);
+
+  const m_q3_c = arcMidpoint([-halfL, -halfW + stopper_r1], [-halfL + stopper_r1, -halfW], [-halfL + stopper_r1, -halfW + stopper_r1], stopper_r1);
+  const m_q3_s = arcMidpoint([c3x, -halfW], [tx, -ty], [c3x, -halfW + stopper_r3], stopper_r3);
+  const m_q3_w = arcMidpoint([tx, -ty], [c2x, -halfWaist], [c2x, -halfWaist - stopper_r2], stopper_r2);
+
+  const m_q4_w = arcMidpoint([-c2x, -halfWaist], [-tx, -ty], [-c2x, -halfWaist - stopper_r2], stopper_r2);
+  const m_q4_s = arcMidpoint([-tx, -ty], [-c3x, -halfW], [-c3x, -halfW + stopper_r3], stopper_r3);
+  const m_q4_c = arcMidpoint([halfL - stopper_r1, -halfW], [halfL, -halfW + stopper_r1], [halfL - stopper_r1, -halfW + stopper_r1], stopper_r1);
+
+  const m_q1_c = arcMidpoint([halfL, halfW - stopper_r1], [halfL - stopper_r1, halfW], [halfL - stopper_r1, halfW - stopper_r1], stopper_r1);
+  const m_q1_s = arcMidpoint([-c3x, halfW], [-tx, ty], [-c3x, halfW - stopper_r3], stopper_r3);
+  const m_q1_w = arcMidpoint([-tx, ty], [-c2x, halfWaist], [-c2x, halfWaist + stopper_r2], stopper_r2);
+
+  const outline = draw([c2x, halfWaist])
+    .threePointsArcTo([tx, ty], m_q2_w)
+    .threePointsArcTo([c3x, halfW], m_q2_s)
+    .lineTo([-halfL + stopper_r1, halfW])
+    .threePointsArcTo([-halfL, halfW - stopper_r1], m_q2_c)
+    .lineTo([-halfL, -halfW + stopper_r1])
+    .threePointsArcTo([-halfL + stopper_r1, -halfW], m_q3_c)
+    .lineTo([c3x, -halfW])
+    .threePointsArcTo([tx, -ty], m_q3_s)
+    .threePointsArcTo([c2x, -halfWaist], m_q3_w)
+    .lineTo([-c2x, -halfWaist])
+    .threePointsArcTo([-tx, -ty], m_q4_w)
+    .threePointsArcTo([-c3x, -halfW], m_q4_s)
+    .lineTo([halfL - stopper_r1, -halfW])
+    .threePointsArcTo([halfL, -halfW + stopper_r1], m_q4_c)
+    .lineTo([halfL, halfW - stopper_r1])
+    .threePointsArcTo([halfL - stopper_r1, halfW], m_q1_c)
+    .lineTo([-c3x, halfW])
+    .threePointsArcTo([-tx, ty], m_q1_s)
+    .threePointsArcTo([-c2x, halfWaist], m_q1_w)
+    .lineTo([c2x, halfWaist])
+    .close();
+
+  const plate = outline.sketchOnPlane('XY').extrude(stopper_height);
+
+  // Cut through-slots for handle tabs
+  const hole_cx = halfL - halfW; // 56 mm from center
+  const slot1 = box(hole_width, hole_length, stopper_height + 4, {
+    at: [-hole_cx, 0, stopper_height / 2],
+  });
+  const slot2 = box(hole_width, hole_length, stopper_height + 4, {
+    at: [hole_cx, 0, stopper_height / 2],
+  });
+
+  return unwrap(cutAll(plate, [slot1, slot2]));
+}
+
+// ── Handle ───────────────────────────────────────────────────────────────────
+
+function makeHandle() {
+  // Main flexible central strap
+  const strap = box(handle_length, handle_width, handle_height, {
+    at: [0, 0, handle_height / 2],
+  });
+
+  // Retention tabs angled at 45 degrees
+  const rightTab = translate(
+    rotate(box(stop_width, stop_length, handle_height, { at: [0, 0, 0] }), 45, {
+      axis: [0, 0, 1],
+    }),
+    [handle_length / 2, -0.25, handle_height / 2]
+  );
+
+  const leftTab = translate(
+    rotate(box(stop_width, stop_length, handle_height, { at: [0, 0, 0] }), -45, {
+      axis: [0, 0, 1],
+    }),
+    [-handle_length / 2, -0.25, handle_height / 2]
+  );
+
+  let solid = unwrap(fuseAll([strap, rightTab, leftTab]));
+
+  // Fillet outer tab lead-in edges (top and bottom) with handle_r
+  const tabEdges = edgeFinder()
+    .ofLength(stop_width)
+    .when((e: Edge) => {
+      const b = getBounds(e);
+      return (
+        (Math.abs(b.zMin) < 0.01 || Math.abs(b.zMax - handle_height) < 0.01) &&
+        Math.abs(b.xMin) > handle_length / 2 - 20
+      );
+    })
+    .findAll(solid);
+
+  if (tabEdges.length > 0 && handle_r > 0) {
+    solid = unwrap(fillet(solid, tabEdges, handle_r));
+  }
+
+  return solid;
+}
+
+// ── Assembly / Scene Output ──────────────────────────────────────────────────
+
+const parts = [];
+
+if (showHandle) {
+  parts.push(color(makeHandle(), '#f39c12')); // Orange molded plastic handle
+}
+
+if (showStopper) {
+  const stopper = translate(makeStopper(), [0, partSpacing, 0]);
+  parts.push(color(stopper, '#d6c4a8')); // Cardboard / neutral reinforcement plate
+}
+
+export default parts;
+`,
+  },
 ];
