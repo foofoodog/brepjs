@@ -9,7 +9,7 @@ import { useUrlState } from './useUrlState';
 import { useScreenshot } from './useScreenshot';
 import { clearDraft } from './useDraftPersistence';
 import { copyToClipboard } from '../lib/copyToClipboard';
-import { meshesToLayerlingClipboard } from '../lib/layerlingClipboard';
+import { extractDesignNameFromCode, meshesToLayerlingClipboard } from '../lib/layerlingClipboard';
 import { DEFAULT_CODE } from '../lib/constants';
 import type { Example } from '../lib/examples';
 
@@ -77,19 +77,20 @@ export function usePlaygroundActions(): PlaygroundActions {
 
   const handleExportLYL = useCallback(() => {
     const meshes = usePlaygroundStore.getState().meshes;
-    const result = meshesToLayerlingClipboard(meshes);
+    const designName = extractDesignNameFromCode(code);
+    const result = meshesToLayerlingClipboard(meshes, designName);
     if (!result) {
       addToast('No model to copy — check that your code returns a shape.');
       return;
     }
     void copyToClipboard(result.text).then((copied) => {
       addToast(
-        copied ? 'Copied for Layerling — paste with Ctrl+V' : 'Clipboard unavailable'
+        copied ? `Copied "${designName}" for Layerling — paste with Ctrl+V` : 'Clipboard unavailable'
       );
     });
     track('playground_export', { format: 'lyl' });
     captureEvent('playground_export', { format: 'lyl' });
-  }, [addToast]);
+  }, [code, addToast]);
 
   const handleExportDXF = useCallback(() => {
     exportDXF(code);

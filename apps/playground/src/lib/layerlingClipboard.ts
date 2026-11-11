@@ -62,6 +62,47 @@ export interface LayerlingClipboardShape {
   hidden: boolean;
 }
 
+export function extractDesignNameFromCode(code: string, fallback = 'brepjs'): string {
+  if (!code) return fallback;
+
+  // 1. Look for a comment line directly preceding the main function
+  // e.g. // Parametric Mounting Flange \n function mountingFlange
+  const commentAboveFn = /(?:\/\/\s*(.+?)\n|\/\*\s*(.+?)\s*\*\/)\s*(?:export\s+default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)/.exec(code);
+  if (commentAboveFn) {
+    const rawComment = (commentAboveFn[1] || commentAboveFn[2] || '').trim();
+    if (rawComment && !/^[@eslint|ts-|prettier]/i.test(rawComment)) {
+      const line = rawComment.split('\n')[0].replace(/^[-#*>\s]+/, '').trim();
+      if (line.length > 0 && line.length <= 50 && !/[;{}=]/.test(line)) {
+        return line;
+      }
+    }
+  }
+
+  // 2. Look for export default functionName() or function functionName
+  const fnMatch = /(?:export\s+default\s+(?:async\s+)?function\s+([A-Za-z0-9_$]+)|function\s+([A-Za-z0-9_$]+)|export\s+default\s+([A-Za-z0-9_$]+)\s*\()/i.exec(code);
+  const name = fnMatch ? (fnMatch[1] || fnMatch[2] || fnMatch[3]) : null;
+  if (name && name !== 'default' && name !== 'anonymous') {
+    return name
+      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+      .replace(/[-_]/g, ' ')
+      .replace(/^./, (c) => c.toUpperCase());
+  }
+
+  // 3. Fallback: check very first comment line in file if it looks like a title
+  const topComment = /^\s*(?:\/\/\s*(.+?)|\/\*\s*(.+?)\s*\*\/)/.exec(code);
+  if (topComment) {
+    const raw = (topComment[1] || topComment[2] || '').trim();
+    if (raw && !/^[@eslint|ts-|import]/i.test(raw)) {
+      const line = raw.split('\n')[0].replace(/^[-#*>\s]+/, '').trim();
+      if (line.length > 0 && line.length <= 40 && !/[;{}=]/.test(line)) {
+        return line;
+      }
+    }
+  }
+
+  return fallback;
+}
+
 export function meshesToLayerlingClipboard(
   meshes: readonly MeshData[],
   designName = 'brepjs'
