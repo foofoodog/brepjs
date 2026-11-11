@@ -49,6 +49,7 @@ export interface LayerlingClipboardShape {
   rotation: number;
   rotationX: number;
   rotationZ: number;
+  scriptSource?: string;
   importedMesh: {
     positions: number[];
     baseWidth: number;
@@ -105,7 +106,8 @@ export function extractDesignNameFromCode(code: string, fallback = 'brepjs'): st
 
 export function meshesToLayerlingClipboard(
   meshes: readonly MeshData[],
-  designName = 'brepjs'
+  designName = 'brepjs',
+  code?: string
 ): { text: string; count: number } | null {
   const extracted: ExtractedMesh[] = [];
   let globalMinY = Infinity;
@@ -177,9 +179,9 @@ export function meshesToLayerlingClipboard(
     }
 
     return {
-      id: generateId('uploaded-mesh'),
+      id: generateId(code ? 'script-shape' : 'uploaded-mesh'),
       name: extracted.length === 1 ? designName : `${designName} ${idx + 1}`,
-      kind: 'mesh',
+      kind: code ? 'script' : 'mesh',
       color,
       x: Number(centerX.toFixed(2)),
       z: Number(centerZ.toFixed(2)),
@@ -191,6 +193,7 @@ export function meshesToLayerlingClipboard(
       rotation: 0,
       rotationX: 0,
       rotationZ: 0,
+      ...(code ? { scriptSource: code } : {}),
       importedMesh: {
         positions: localPositions,
         baseWidth: Number(width.toFixed(2)),

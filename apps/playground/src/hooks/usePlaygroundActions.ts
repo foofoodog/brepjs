@@ -78,7 +78,7 @@ export function usePlaygroundActions(): PlaygroundActions {
   const handleExportLYL = useCallback(() => {
     const meshes = usePlaygroundStore.getState().meshes;
     const designName = extractDesignNameFromCode(code);
-    const result = meshesToLayerlingClipboard(meshes, designName);
+    const result = meshesToLayerlingClipboard(meshes, designName, code);
     if (!result) {
       addToast('No model to copy — check that your code returns a shape.');
       return;
