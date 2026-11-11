@@ -71,7 +71,7 @@ export function extractDesignNameFromCode(code: string, fallback = 'brepjs'): st
   const commentAboveFn = /(?:\/\/\s*(.+?)\n|\/\*\s*(.+?)\s*\*\/)\s*(?:export\s+default\s+)?(?:async\s+)?function\s+([A-Za-z0-9_$]+)/.exec(code);
   if (commentAboveFn) {
     const rawComment = (commentAboveFn[1] || commentAboveFn[2] || '').trim();
-    if (rawComment && !/^[@eslint|ts-|prettier]/i.test(rawComment)) {
+    if (rawComment && !/^(?:@|eslint|ts-|prettier)/i.test(rawComment)) {
       const line = rawComment.split('\n')[0].replace(/^[-#*>\s]+/, '').trim();
       if (line.length > 0 && line.length <= 50 && !/[;{}=]/.test(line)) {
         return line;
@@ -90,10 +90,10 @@ export function extractDesignNameFromCode(code: string, fallback = 'brepjs'): st
   }
 
   // 3. Fallback: check very first comment line in file if it looks like a title
-  const topComment = /^\s*(?:\/\/\s*(.+?)|\/\*\s*(.+?)\s*\*\/)/.exec(code);
+  const topComment = /^\s*(?:\/\/\s*(.+?)(?:\r?\n|$)|(?:\/\*\s*([\s\S]+?)\s*\*\/))/.exec(code);
   if (topComment) {
     const raw = (topComment[1] || topComment[2] || '').trim();
-    if (raw && !/^[@eslint|ts-|import]/i.test(raw)) {
+    if (raw && !/^(?:@|eslint|ts-|import)/i.test(raw)) {
       const line = raw.split('\n')[0].replace(/^[-#*>\s]+/, '').trim();
       if (line.length > 0 && line.length <= 40 && !/[;{}=]/.test(line)) {
         return line;
