@@ -17,7 +17,11 @@ export const MECHANICAL_EXAMPLES: readonly Example[] = [
 // (gridfinitylayouttool.com). A cols x rows grid of 42 mm cells: walls, one
 // socket foot per cell that mates with a baseplate, and a stacking lip so
 // bins nest when stacked. Bump cols/rows/heightUnits to resize it.
-function gridfinityBin({ cols = 1, rows = 1, heightUnits = 3 } = {}) {
+function gridfinityBin({
+  cols = 1,        // [1:6] Grid units in X (42 mm pitch)
+  rows = 1,        // [1:6] Grid units in Y (42 mm pitch)
+  heightUnits = 3, // [1:12] Height in 7 mm units
+} = {}) {
   const PITCH = 42; // Gridfinity grid pitch
   const GAP = 0.5; // total footprint clearance — 0.25 mm per outer edge
   const WALL = 1.2; // wall thickness
@@ -300,12 +304,12 @@ export default fanGuard();`,
 // GT2 timing pulley: a toothed body caged between two flanges on a bored hub,
 // with a radial grub-screw hole. Defaults model the common GT2x20 for a 5 mm shaft.
 function gt2Pulley(
-  teeth = 20, // number of belt grooves around the rim
-  beltWidth = 7, // axial height of the toothed body (mm)
-  bore = 5, // shaft bore diameter (mm)
-  hubDia = 12, // hub outer diameter (mm)
-  hubLength = 6, // hub height below the body (mm)
-  flangeThickness = 1, // each flange disc thickness (mm)
+  teeth = 20,           // [10:100] Number of belt grooves around the rim
+  beltWidth = 7,        // [4:20] Axial height of the toothed body (mm)
+  bore = 5,             // [2:15] Shaft bore diameter (mm)
+  hubDia = 12,          // [6:30] Hub outer diameter (mm)
+  hubLength = 6,        // [2:20] Hub height below the body (mm)
+  flangeThickness = 1,  // [0.5:3] Each flange disc thickness (mm)
 ) {
   const pitch = 2; // GT2 belt pitch (standard)
   const toothDepth = 0.75; // GT2 groove depth (standard)
@@ -367,14 +371,14 @@ export default gt2Pulley();`,
 // (the canonical B-Rep boolean seam), and every bore and bolt leaves an exact
 // circular edge. A pure fuse + cut build.
 function pipeTee({
-  runR = 18, // main run outer radius (mm)
-  runLen = 130, // run length, flange face to flange face (mm)
-  branchR = 15, // branch outer radius (mm)
-  branchH = 60, // branch height above the run centre (mm)
-  flangeR = 30, // run flange radius (mm)
-  flangeT = 8, // flange disc thickness (mm)
-  boltR = 3.5, // bolt hole radius (mm)
-  bolts = 4, // bolt holes per flange
+  runR = 18,       // [10:50] Main run outer radius (mm)
+  runLen = 130,    // [60:300] Run length, flange face to flange face (mm)
+  branchR = 15,    // [8:40] Branch outer radius (mm)
+  branchH = 60,    // [30:150] Branch height above the run centre (mm)
+  flangeR = 30,    // [20:80] Run flange radius (mm)
+  flangeT = 8,     // [4:20] Flange disc thickness (mm)
+  boltR = 3.5,     // [2:8] Bolt hole radius (mm)
+  bolts = 4,       // [3:12] Bolt holes per flange
 } = {}) {
   // Branch flange a touch smaller than the run flanges so its rim stays clear
   // of the run body at the saddle join.
@@ -436,13 +440,13 @@ export default pipeTee();
 // the cone slant, so the flutes run the full height instead of fading out near
 // the narrow top. A central socket presses onto a shaft.
 function flutedKnob(
-  height = 18,
-  topDiameter = 24,
-  bottomDiameter = 30,
-  fluteCount = 16,
-  fluteDepth = 1.4,
-  boreDiameter = 6,
-  boreDepth = 12,
+  height = 18,         // [10:40] Overall knob height (mm)
+  topDiameter = 24,    // [12:60] Top diameter (mm)
+  bottomDiameter = 30, // [15:70] Bottom diameter (mm)
+  fluteCount = 16,     // [6:32] Number of grip flutes
+  fluteDepth = 1.4,    // [0.5:4] Flute depth (mm)
+  boreDiameter = 6,    // [3:15] Shaft bore diameter (mm)
+  boreDepth = 12,      // [6:30] Bore depth (mm)
 ) {
   const topR = topDiameter / 2;
   const botR = bottomDiameter / 2;
@@ -529,9 +533,9 @@ export default rubberFoot();`,
 // rides on the pitch circle between them. Defaults model a 608; change
 // id/od/width for any deep-groove size (629, 6000, 6200, ...).
 function ballBearing(
-  id: number = 8, // shaft bore diameter (mm)
-  od: number = 22, // outer (housing) diameter (mm)
-  width: number = 7, // axial width of the cartridge (mm)
+  id: number = 8,    // [4:50] Shaft bore diameter (mm)
+  od: number = 22,   // [10:100] Outer (housing) diameter (mm)
+  width: number = 7, // [2:30] Axial width of the cartridge (mm)
 ) {
   const ri = id / 2; // bore radius
   const ro = od / 2; // outer radius
@@ -849,15 +853,15 @@ export default cubeTrussFrame();`,
 // rise above the bore, split by a 5 mm flex gap, and a counterbored cross-bolt
 // pinches them shut. Axis horizontal (X); whole part centred on the origin.
 function linearBearingBlock(
-  bore = 15, // bearing cartridge outer diameter (clamped)
-  length = 24, // cartridge / block length along X
-  wall = 3, // housing wall thickness around the bore
-  base = 4, // base slab height below the bore centreline
-  gap = 5, // clamp flex-gap width
-  tabWall = 5, // material either side of the gap (each ear)
-  earRise = 9, // how far the clamp ears stand above the bore top
-  boltR = 1.6, // cross-bolt clearance radius (~M3)
-  headR = 3, // counterbore radius for the bolt head
+  bore = 15,    // [8:50] Bearing cartridge outer diameter (clamped)
+  length = 24,  // [16:80] Cartridge / block length along X
+  wall = 3,     // [1.5:8] Housing wall thickness around the bore
+  base = 4,     // [2:15] Base slab height below the bore centreline
+  gap = 5,      // [2:12] Clamp flex-gap width
+  tabWall = 5,  // [2:12] Material either side of the gap (each ear)
+  earRise = 9,  // [4:20] How far the clamp ears stand above the bore top
+  boltR = 1.6,  // [1:5] Cross-bolt clearance radius (~M3)
+  headR = 3,    // [2:8] Counterbore radius for the bolt head
 ) {
   const housingR = bore / 2 + wall; // outer radius of the round housing
   const earSpan = gap + 2 * tabWall; // total ear width across Y

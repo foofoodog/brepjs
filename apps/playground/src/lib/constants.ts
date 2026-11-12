@@ -14,7 +14,11 @@ export const DEFAULT_CODE = `import {
 //   studBrick(2, 4, 1)  → 2×4 plate (a brick is 3 plates tall)
 //   studBrick(1, 6, 3)  → 1×6 brick
 //   studBrick(8, 8, 1)  → 8×8 baseplate
-function studBrick(studsX: number, studsY: number, plateUnits: number) {
+function studBrick(
+  studsX: number = 2,    // [1:16] Number of studs along X
+  studsY: number = 4,    // [1:16] Number of studs along Y
+  plateUnits: number = 3 // [1:12] Height in plate units (1 plate = 3.2 mm; 3 plates = 1 standard brick)
+) {
   // Interlocking-brick spec (mm).
   const pitch = 8;       // stud-to-stud spacing
   const studR = 2.4;     // stud Ø4.8

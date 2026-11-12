@@ -32,7 +32,10 @@ export default [s, b, c, co, t];
 const pegboard = `import { box, cutAll, cylinder, unwrap } from 'brepjs/quick';
 
 // Parametric pegboard: any width × height, fixed 25 mm grid, 6 mm pegs.
-function pegboard(cols: number, rows: number) {
+function pegboard(
+  cols: number = 6, // [2:20] Number of columns
+  rows: number = 4, // [2:20] Number of rows
+) {
   const pitch = 25;
   const padding = 12.5;
   const thickness = 6;

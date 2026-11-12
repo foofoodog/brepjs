@@ -160,6 +160,78 @@ export function meshesToLayerlingClipboard(
 
   if (extracted.length === 0) return null;
 
+  // When code is present, all meshes represent parts of one parametric model
+  // (e.g. an assembly like a ball bearing, housing with screws, etc.).
+  // Merge them into a single coherent shape so Layerling gets 1 parametric part.
+  if (code && extracted.length > 1) {
+    let overallMinX = Infinity;
+    let overallMaxX = -Infinity;
+    let overallMinY = Infinity;
+    let overallMaxY = -Infinity;
+    let overallMinZ = Infinity;
+    let overallMaxZ = -Infinity;
+
+    for (const item of extracted) {
+      if (item.minX < overallMinX) overallMinX = item.minX;
+      if (item.maxX > overallMaxX) overallMaxX = item.maxX;
+      if (item.minY < overallMinY) overallMinY = item.minY;
+      if (item.maxY > overallMaxY) overallMaxY = item.maxY;
+      if (item.minZ < overallMinZ) overallMinZ = item.minZ;
+      if (item.maxZ > overallMaxZ) overallMaxZ = item.maxZ;
+    }
+
+    const width = Math.max(0.01, overallMaxX - overallMinX);
+    const height = Math.max(0.01, overallMaxY - overallMinY);
+    const depth = Math.max(0.01, overallMaxZ - overallMinZ);
+    const size = Math.max(width, depth);
+    const centerX = (overallMinX + overallMaxX) / 2;
+    const centerZ = (overallMinZ + overallMaxZ) / 2;
+
+    const totalFloats = extracted.reduce((sum, item) => sum + item.rawPositions.length, 0);
+    const localPositions = new Array<number>(totalFloats);
+    let offset = 0;
+    for (const item of extracted) {
+      for (let i = 0; i < item.rawPositions.length; i += 3) {
+        localPositions[offset++] = Number((item.rawPositions[i] - centerX).toFixed(5));
+        localPositions[offset++] = Number((item.rawPositions[i + 1] - overallMinY).toFixed(5));
+        localPositions[offset++] = Number((item.rawPositions[i + 2] - centerZ).toFixed(5));
+      }
+    }
+
+    const singleShape: LayerlingClipboardShape = {
+      id: generateId('script-shape'),
+      name: designName,
+      kind: 'script',
+      color: extracted[0].color,
+      x: Number(centerX.toFixed(2)),
+      z: Number(centerZ.toFixed(2)),
+      size: Number(size.toFixed(2)),
+      width: Number(width.toFixed(2)),
+      depth: Number(depth.toFixed(2)),
+      height: Number(height.toFixed(2)),
+      rotation: 0,
+      rotationX: 0,
+      rotationZ: 0,
+      scriptSource: code,
+      importedMesh: {
+        positions: localPositions,
+        baseWidth: Number(width.toFixed(2)),
+        baseDepth: Number(depth.toFixed(2)),
+        baseHeight: Number(height.toFixed(2)),
+        triangleCount: localPositions.length / 9,
+        sourceFormat: 'stl',
+        assetId: generateId('asset').replace(/-/g, ''),
+      },
+      locked: false,
+      hidden: false,
+    };
+
+    return {
+      text: `LAYERLING/1\n${JSON.stringify({ copiedAt: Date.now(), shapes: [singleShape] })}`,
+      count: 1,
+    };
+  }
+
   const shapes: LayerlingClipboardShape[] = extracted.map((item, idx) => {
     const { rawPositions, minX, maxX, minY, maxY, minZ, maxZ, color } = item;
     const width = Math.max(0.01, maxX - minX);
