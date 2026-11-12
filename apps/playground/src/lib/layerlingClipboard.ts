@@ -37,7 +37,7 @@ interface ExtractedMesh {
 export interface LayerlingClipboardShape {
   id: string;
   name: string;
-  kind: 'mesh';
+  kind: 'mesh' | 'script';
   color: string;
   x: number;
   z: number;
